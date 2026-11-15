@@ -98,7 +98,7 @@ function Welcome() {
             </div>
           ) : null}
 
-          {!configured ? (
+          {!configured && !error ? (
             <p className="text-center text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
               O Google entra por um projeto Supabase seu. Configuração em Configurações, aba Conta e nuvem.
             </p>
