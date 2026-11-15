@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { SettingsProvider, useSettings } from "@/lib/settings-store";
 import { AuthProvider, useAuth } from "@/lib/auth-store";
+import { signInWithGoogle } from "@/lib/auth";
 import { detectPlatform, type PlatformInfo } from "@/lib/platform";
 import { PROVIDER_LABEL, PROVIDER_ORDER } from "@/lib/ai";
 import { APP_VERSION, OWNER } from "@/lib/releases";
@@ -44,11 +45,52 @@ const VIEW_META: Record<ViewId, { title: string; subtitle: string }> = {
 
 function Welcome() {
   const { configured, signIn, continueAsGuest } = useAuth();
+  const { settings, updateSupabase } = useSettings();
+  const [url, setUrl] = useState(settings.supabase.url);
+  const [anonKey, setAnonKey] = useState(settings.supabase.anonKey);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [showSetup, setShowSetup] = useState(!configured);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const message = params.get("error_description") || params.get("error");
+    if (message) {
+      setError(decodeURIComponent(message.replace(/\+/g, " ")));
+      setShowSetup(true);
+      setBusy(false);
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
+
+  const start = () => {
+    setError("");
+    if (configured) {
+      setBusy(true);
+      signIn();
+      return;
+    }
+    if (!url.trim() || !anonKey.trim()) {
+      setShowSetup(true);
+      setError("Informe a URL do projeto e a anon key do Supabase.");
+      return;
+    }
+    const next = { url: url.trim().replace(/\/$/, ""), anonKey: anonKey.trim(), enabled: true };
+    updateSupabase(next);
+    try {
+      setBusy(true);
+      signInWithGoogle(next);
+    } catch (cause) {
+      setBusy(false);
+      setError(cause instanceof Error ? cause.message : "Não foi possível abrir o login do Google.");
+    }
+  };
 
   return (
-    <div className="grid h-[100dvh] place-items-center px-6" style={{ background: "var(--bg)" }}>
-      <div className="w-full max-w-[380px]">
-        <div className="mb-8">
+    <div className="min-h-[100dvh] px-6 py-10" style={{ background: "var(--bg)" }}>
+      <div className="mx-auto w-full max-w-[400px]">
+        <div className="mb-7">
           <div
             className="mb-5 grid h-11 w-11 place-items-center rounded-xl text-[14px] font-semibold"
             style={{ background: "var(--accent)", color: "var(--accent-ink)" }}
@@ -61,28 +103,79 @@ function Welcome() {
           </p>
         </div>
 
-        <div className="space-y-2.5">
-          <button
-            type="button"
-            onClick={signIn}
-            disabled={!configured}
-            className="btn w-full justify-center"
-            title={configured ? "Entrar com Google" : "Configure o Supabase em Configurações"}
-          >
+        <div className="space-y-3">
+          <button type="button" onClick={start} disabled={busy} className="btn w-full justify-center">
             <LogIn className="h-4 w-4" />
-            Entrar com Google
+            {busy ? "Abrindo o Google..." : "Entrar com Google"}
           </button>
-          {!configured ? (
-            <p className="text-[11px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
-              O login usa o Supabase do projeto. Preencha URL e anon key em Configurações e recarregue.
-            </p>
+
+          {error ? (
+            <div className="panel px-3 py-2 text-[11px] leading-relaxed" style={{ color: "#fca5a5" }}>
+              {error}
+            </div>
           ) : null}
-          <button type="button" onClick={continueAsGuest} className="btn btn-ghost w-full justify-center">
-            Continuar sem login (Modo Local)
-          </button>
+
+          {!configured || showSetup ? (
+            <div className="panel space-y-2.5 p-3.5">
+              <div>
+                <p className="text-[11.5px] font-medium">Conectar o Supabase</p>
+                <p className="mt-0.5 text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+                  O Google entra por um projeto Supabase seu. Cole os dois valores do painel em Project Settings, API.
+                </p>
+              </div>
+              <input
+                value={url}
+                onChange={(event) => setUrl(event.target.value)}
+                placeholder="https://xxxxxxxx.supabase.co"
+                spellCheck={false}
+                aria-label="URL do projeto Supabase"
+                className="input w-full text-[11.5px]"
+              />
+              <input
+                value={anonKey}
+                onChange={(event) => setAnonKey(event.target.value)}
+                placeholder="anon key (public)"
+                spellCheck={false}
+                aria-label="Anon key do Supabase"
+                className="input w-full text-[11.5px]"
+              />
+              <button type="button" onClick={start} disabled={busy} className="btn w-full justify-center !text-[11.5px]">
+                Salvar e entrar com Google
+              </button>
+              <details className="text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+                <summary className="cursor-pointer select-none">O que precisa estar ligado no Supabase</summary>
+                <ul className="mt-1.5 list-disc space-y-1 pl-4">
+                  <li>Authentication, Providers, Google: client id e secret do Google Cloud.</li>
+                  <li>Authentication, URL Configuration: site URL e a origem deste app em Redirect URLs.</li>
+                  <li>Redirect do Google Cloud: https://SEU-PROJETO.supabase.co/auth/v1/callback</li>
+                  <li>Rodar o supabase-schema.sql no SQL Editor.</li>
+                </ul>
+              </details>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowSetup(true)}
+              className="text-[10.5px] underline decoration-dotted"
+              style={{ color: "var(--muted-2)" }}
+            >
+              Trocar projeto Supabase
+            </button>
+          )}
+
+          <div className="pt-1 text-center">
+            <button
+              type="button"
+              onClick={continueAsGuest}
+              className="text-[10.5px] underline decoration-dotted"
+              style={{ color: "var(--muted-2)" }}
+            >
+              Entrar sem conta (não sincroniza)
+            </button>
+          </div>
         </div>
 
-        <p className="mt-8 text-[10.5px]" style={{ color: "var(--muted-2)" }}>
+        <p className="mt-7 text-[10.5px]" style={{ color: "var(--muted-2)" }}>
           Criado por {OWNER} · v{APP_VERSION}
         </p>
       </div>
