@@ -73,17 +73,17 @@ Calls go to `https://models.github.ai/inference/chat/completions` with `openai/g
 
 ## Google sign in with Supabase
 
-Sign in is optional. Without it the app runs in local mode, with data in the browser.
+Sign in is optional. Without it the app runs without an account and keeps data in the browser.
 
-1. Create a project at [supabase.com](https://supabase.com/dashboard).
-2. Open **SQL Editor**, paste the contents of [`supabase-schema.sql`](supabase-schema.sql) and run it. It creates the `profiles`, `app_settings`, `conversations` and `api_keys` tables with row level security.
-3. Open **Authentication > Providers > Google**, enable it and paste the client id and secret from the Google Cloud console.
-4. In Google Cloud, create an OAuth 2.0 client of type **Web application** and add the authorized redirect URI that Supabase shows on that page (`https://<project>.supabase.co/auth/v1/callback`).
-5. Open **Authentication > URL Configuration** and add every address the app runs on:
-   - `http://localhost:3100/` for local development
-   - the deployed site URL for the web version
-   - `omnistudio://auth/callback` for the desktop app and Android
-6. In OmniStudio open **Configurações > Conta e nuvem**, paste the project URL and the anon key, then press **Entrar com Google**.
+The short version:
+
+1. Create a project at [supabase.com](https://supabase.com/dashboard) and run [`supabase-schema.sql`](supabase-schema.sql) in the SQL Editor.
+2. Create an OAuth client in Google Cloud, type **Web application**, with the redirect URI `https://YOUR-REF.supabase.co/auth/v1/callback`.
+3. Enable Google under **Authentication > Providers** in Supabase and paste the client id and secret.
+4. Add `http://localhost:3100`, the deployed URL and `omnistudio://auth/callback` under **Authentication > URL Configuration > Redirect URLs**.
+5. In OmniStudio open **Configurações > Conta e nuvem**, paste the project URL and the anon key, then press **Entrar com Google**.
+
+The full walkthrough, with the Google Cloud screens, the testing mode caveat and a troubleshooting table, is in [`docs/google-login-setup.md`](docs/google-login-setup.md).
 
 The desktop app registers the `omnistudio://` scheme in the Electron main process and forwards the callback to the renderer. The Android build needs the same scheme in an intent filter inside `android/app/src/main/AndroidManifest.xml`:
 

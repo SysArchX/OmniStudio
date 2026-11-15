@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { SettingsProvider, useSettings } from "@/lib/settings-store";
 import { AuthProvider, useAuth } from "@/lib/auth-store";
-import { signInWithGoogle } from "@/lib/auth";
 import { detectPlatform, type PlatformInfo } from "@/lib/platform";
 import { PROVIDER_LABEL, PROVIDER_ORDER } from "@/lib/ai";
 import { APP_VERSION, OWNER } from "@/lib/releases";
@@ -45,12 +44,8 @@ const VIEW_META: Record<ViewId, { title: string; subtitle: string }> = {
 
 function Welcome() {
   const { configured, signIn, continueAsGuest } = useAuth();
-  const { settings, updateSupabase } = useSettings();
-  const [url, setUrl] = useState(settings.supabase.url);
-  const [anonKey, setAnonKey] = useState(settings.supabase.anonKey);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [showSetup, setShowSetup] = useState(!configured);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -58,7 +53,6 @@ function Welcome() {
     const message = params.get("error_description") || params.get("error");
     if (message) {
       setError(decodeURIComponent(message.replace(/\+/g, " ")));
-      setShowSetup(true);
       setBusy(false);
       window.history.replaceState(null, "", window.location.pathname);
     }
@@ -66,25 +60,14 @@ function Welcome() {
 
   const start = () => {
     setError("");
-    if (configured) {
-      setBusy(true);
-      signIn();
+    if (!configured) {
+      setError(
+        "Nenhum projeto Supabase conectado. Abra Configurações, aba Conta e nuvem, e informe a URL e a anon key. O passo a passo está no README do repositório.",
+      );
       return;
     }
-    if (!url.trim() || !anonKey.trim()) {
-      setShowSetup(true);
-      setError("Informe a URL do projeto e a anon key do Supabase.");
-      return;
-    }
-    const next = { url: url.trim().replace(/\/$/, ""), anonKey: anonKey.trim(), enabled: true };
-    updateSupabase(next);
-    try {
-      setBusy(true);
-      signInWithGoogle(next);
-    } catch (cause) {
-      setBusy(false);
-      setError(cause instanceof Error ? cause.message : "Não foi possível abrir o login do Google.");
-    }
+    setBusy(true);
+    signIn();
   };
 
   return (
@@ -115,53 +98,11 @@ function Welcome() {
             </div>
           ) : null}
 
-          {!configured || showSetup ? (
-            <div className="panel space-y-2.5 p-3.5">
-              <div>
-                <p className="text-[11.5px] font-medium">Conectar o Supabase</p>
-                <p className="mt-0.5 text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
-                  O Google entra por um projeto Supabase seu. Cole os dois valores do painel em Project Settings, API.
-                </p>
-              </div>
-              <input
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                placeholder="https://xxxxxxxx.supabase.co"
-                spellCheck={false}
-                aria-label="URL do projeto Supabase"
-                className="input w-full text-[11.5px]"
-              />
-              <input
-                value={anonKey}
-                onChange={(event) => setAnonKey(event.target.value)}
-                placeholder="anon key (public)"
-                spellCheck={false}
-                aria-label="Anon key do Supabase"
-                className="input w-full text-[11.5px]"
-              />
-              <button type="button" onClick={start} disabled={busy} className="btn w-full justify-center !text-[11.5px]">
-                Salvar e entrar com Google
-              </button>
-              <details className="text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
-                <summary className="cursor-pointer select-none">O que precisa estar ligado no Supabase</summary>
-                <ul className="mt-1.5 list-disc space-y-1 pl-4">
-                  <li>Authentication, Providers, Google: client id e secret do Google Cloud.</li>
-                  <li>Authentication, URL Configuration: site URL e a origem deste app em Redirect URLs.</li>
-                  <li>Redirect do Google Cloud: https://SEU-PROJETO.supabase.co/auth/v1/callback</li>
-                  <li>Rodar o supabase-schema.sql no SQL Editor.</li>
-                </ul>
-              </details>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setShowSetup(true)}
-              className="text-[10.5px] underline decoration-dotted"
-              style={{ color: "var(--muted-2)" }}
-            >
-              Trocar projeto Supabase
-            </button>
-          )}
+          {!configured ? (
+            <p className="text-center text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+              O Google entra por um projeto Supabase seu. Configuração em Configurações, aba Conta e nuvem.
+            </p>
+          ) : null}
 
           <div className="pt-1 text-center">
             <button

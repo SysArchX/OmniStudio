@@ -368,8 +368,17 @@ export default function SettingsView() {
                   onChange={(enabled) => updateSupabase({ enabled })}
                 />
                 <p className="text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
-                  Rode o arquivo supabase-schema.sql no SQL Editor e cadastre a URL de retorno em Authentication → URL
-                  Configuration.
+                  Rode o arquivo supabase-schema.sql no SQL Editor, ative o provider Google e cadastre a URL de retorno em
+                  Authentication → URL Configuration.{" "}
+                  <a
+                    href="https://github.com/SysArchX/OmniStudio/blob/main/docs/google-login-setup.md"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline decoration-dotted"
+                    style={{ color: "var(--text)" }}
+                  >
+                    Passo a passo completo
+                  </a>
                 </p>
               </div>
 
