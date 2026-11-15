@@ -1,0 +1,129 @@
+name: Build de instaladores
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows
+            artifact: release/OmniStudio-Setup.exe
+            out: OmniStudio-Setup.exe
+            command: npx electron-builder --win nsis --publish never
+          - os: ubuntu-latest
+            name: Debian
+            artifact: release/OmniStudio.deb
+            out: OmniStudio.deb
+            command: npx electron-builder --linux deb --publish never
+          - os: ubuntu-latest
+            name: Arch
+            artifact: release/OmniStudio.pacman
+            out: OmniStudio.pacman
+            command: npx electron-builder --linux pacman --publish never
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Build web
+        run: npm run build
+
+      - name: Empacotar
+        run: ${{ matrix.command }}
+
+      - name: Renomear artefato
+        shell: bash
+        run: cp "${{ matrix.artifact }}" "${{ matrix.out }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omni-${{ matrix.name }}
+          path: ${{ matrix.out }}
+
+  android:
+    name: Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Build web
+        run: npm run build
+
+      - name: Adicionar plataforma Android
+        run: |
+          npx cap add android || npx cap sync android
+
+      - name: Compilar APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Renomear APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk OmniStudio.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omni-Android
+          path: OmniStudio.apk
+
+  release:
+    name: Publicar release
+    needs: [desktop, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Listar arquivos
+        run: ls -la artifacts
+
+      - name: Criar release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('build-{0}', github.run_number) }}
+          name: OmniStudio ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            artifacts/OmniStudio-Setup.exe
+            artifacts/OmniStudio.deb
+            artifacts/OmniStudio.pacman
+            artifacts/OmniStudio.apk
+            packaging/arch/PKGBUILD

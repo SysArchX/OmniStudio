@@ -1,0 +1,107 @@
+{
+  "name": "omnistudio",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Chat com provedores gratuitos, estúdio de vídeo 2D e modo agente",
+  "author": "SysArchX",
+  "license": "MIT",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "next dev --webpack -p 3100",
+    "build": "next build --webpack",
+    "typecheck": "tsc --noEmit",
+    "start": "next start -p 3100",
+    "electron:dev": "cross-env ELECTRON_START_URL=http://localhost:3100 electron .",
+    "dist:win": "electron-builder --win nsis",
+    "dist:deb": "electron-builder --linux deb",
+    "dist:pacman": "electron-builder --linux pacman",
+    "dist:all": "electron-builder -wml",
+    "android:sync": "cap sync android",
+    "android:apk": "cd android && ./gradlew assembleRelease"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.2.5",
+    "framer-motion": "^14.14.0",
+    "jszip": "^3.10.1",
+    "lucide-react": "^1.73.0",
+    "next": "^16.4.6",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/cli": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.180.0",
+    "cross-env": "^10.0.0",
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^5.9.3"
+  },
+  "build": {
+    "appId": "com.sysarchx.omnistudio",
+    "productName": "OmniStudio",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "out/**/*",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.cjs"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "OmniStudio-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "OmniStudio",
+      "installerLanguages": [
+        "pt_BR"
+      ],
+      "language": "1046"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "deb",
+          "arch": [
+            "amd64"
+          ]
+        },
+        {
+          "target": "pacman",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Development;AudioVideo;Graphics",
+      "artifactName": "OmniStudio.${ext}",
+      "desktop": {
+        "Name": "OmniStudio",
+        "Comment": "Chat, estúdio de vídeo e modo agente",
+        "Categories": "Development;AudioVideo;Graphics;"
+      }
+    }
+  }
+}

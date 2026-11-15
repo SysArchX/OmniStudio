@@ -1,0 +1,49 @@
+# Maintainer: SysArchX <https://github.com/SysArchX>
+pkgname=omnistudio-ai
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Workspace hibrido com chat multi-provedor, estudio de video 3D e fabrica de APKs"
+arch=('x86_64')
+url="https://github.com/SysArchX/OmniStudio-AI"
+license=('MIT')
+depends=('gtk3' 'nss' 'libxss' 'libxtst' 'at-spi2-core' 'libnotify')
+makedepends=('nodejs' 'npm')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/SysArchX/OmniStudio-AI/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "OmniStudio-AI-$pkgver"
+  npm ci
+}
+
+build() {
+  cd "OmniStudio-AI-$pkgver"
+  npm run build
+  npx electron-builder --linux dir
+}
+
+package() {
+  cd "OmniStudio-AI-$pkgver"
+  install -dm755 "$pkgdir/opt/$pkgname"
+  cp -r release/linux-unpacked/* "$pkgdir/opt/$pkgname/"
+
+  install -dm755 "$pkgdir/usr/bin"
+  ln -s "/opt/$pkgname/omnistudio-ai" "$pkgdir/usr/bin/$pkgname"
+
+  install -dm755 "$pkgdir/usr/share/applications"
+  cat > "$pkgdir/usr/share/applications/$pkgname.desktop" <<EOF
+[Desktop Entry]
+Name=OmniStudio AI
+Comment=Workspace hibrido de IA, video 3D e fabrica de APKs
+Exec=/opt/$pkgname/omnistudio-ai %U
+Terminal=false
+Type=Application
+Icon=$pkgname
+Categories=Development;AudioVideo;Graphics;
+EOF
+
+  install -dm755 "$pkgdir/usr/share/icons/hicolor/512x512/apps"
+  if [ -f "build/icon.png" ]; then
+    install -Dm644 "build/icon.png" "$pkgdir/usr/share/icons/hicolor/512x512/apps/$pkgname.png"
+  fi
+}
