@@ -6,7 +6,7 @@ export const REPO_URL = `https://github.com/${OWNER}/${REPO}`;
 export const RELEASES_URL = `${REPO_URL}/releases/latest`;
 export const PROFILE_URL = `https://github.com/${OWNER}`;
 export const WEB_URL = "https://site-18ac632e87d148d6ac36f5819bc6945b.freebuff.page";
-export const SHORT_URL = "https://is.gd/omnistudio";
+export const SHORT_URL = "https://is.gd/omnistud";
 
 export const ASSETS = {
   win: "OmniStudio-Setup.exe",
