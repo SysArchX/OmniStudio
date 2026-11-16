@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Clapperboard,
+  Download,
   FolderOpen,
   LogIn,
   LogOut,
@@ -19,11 +20,13 @@ import { AuthProvider, useAuth } from "@/lib/auth-store";
 import { WorkspaceProvider, useWorkspace } from "@/lib/workspace-store";
 import { pickWorkspace } from "@/lib/agent";
 import { pullKeys, pushConversations, pushSettings } from "@/lib/cloud";
+import { startHeartbeat, startRemoteRunner } from "@/lib/remote";
 import { APP_VERSION, OWNER } from "@/lib/releases";
 import type { ViewId } from "@/lib/types";
 import { cn } from "./ui";
 import AuthModal from "./AuthModal";
 import Inspector from "./Inspector";
+import DownloadsModal from "./DownloadsModal";
 import ChatView from "./views/ChatView";
 import StudioView from "./views/StudioView";
 import AgentView from "./views/AgentView";
@@ -48,6 +51,11 @@ const VIEW_TITLE: Record<ViewId, string> = {
 
 function AccountBar({ compact }: { compact?: boolean }) {
   const { session, openAuth, signIn, signOut } = useAuth();
+  const { updateKeys } = useSettings();
+  const leaveAccount = () => {
+    updateKeys({ openrouter: "", groq: "", mistral: "", composio: "" });
+    void signOut();
+  };
 
   if (session) {
     return (
@@ -73,7 +81,7 @@ function AccountBar({ compact }: { compact?: boolean }) {
           )}
           <button
             type="button"
-            onClick={() => void signOut()}
+            onClick={leaveAccount}
             className="btn btn-ghost !p-1.5"
             aria-label="Sair da conta"
             title="Sair"
@@ -281,6 +289,7 @@ function Shell() {
   const { settings, updateKeys } = useSettings();
   const keysRestored = useRef<string | null>(null);
   const lastPush = useRef<string>("");
+  const [downloadsOpen, setDownloadsOpen] = useState(false);
   const [platform, setPlatform] = useState<PlatformInfo>({ kind: "web", label: "Navegador", native: false, bridge: null });
 
   useEffect(() => {
@@ -296,6 +305,19 @@ function Shell() {
       if (result.ok && result.data) updateKeys(result.data);
     });
   }, [session, settings.keys, settings.supabase, updateKeys]);
+
+  // App instalado: presença online + execução das tarefas enviadas pelo celular.
+  useEffect(() => {
+    if (platform.kind === "web" || !session || !platform.bridge) return;
+    const stopHeartbeat = startHeartbeat(settings.supabase, session);
+    const stopRunner = startRemoteRunner(settings.supabase, session, {
+      execute: (command) => platform.bridge!.runCommand(command),
+    });
+    return () => {
+      stopHeartbeat();
+      stopRunner();
+    };
+  }, [platform.kind, platform.bridge, session, settings.supabase]);
 
   // Sincroniza configurações e conversas a cada 10 segundos (só quando mudam).
   useEffect(() => {
@@ -366,6 +388,15 @@ function Shell() {
           ) : null}
           <button
             type="button"
+            onClick={() => setDownloadsOpen(true)}
+            className="btn btn-ghost !p-1.5"
+            aria-label="Baixar apps"
+            title="Baixar apps"
+          >
+            <Download className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
             onClick={toggleInspector}
             className="btn btn-ghost !p-1.5"
             aria-label={inspectorOpen ? "Ocultar inspetor" : "Mostrar inspetor"}
@@ -373,14 +404,30 @@ function Shell() {
           >
             <PanelRight className="h-4 w-4" />
           </button>
-          {!settings.keys.groq && !settings.keys.openrouter ? (
+          {!session ? (
             <button type="button" onClick={openAuth} className="btn !hidden !text-[11px] sm:!inline-flex">
               Entrar
             </button>
           ) : null}
         </header>
 
-        <main className="min-h-0 flex-1 overflow-hidden pb-[calc(56px+env(safe-area-inset-bottom))] md:pb-0">
+        <main className="relative min-h-0 flex-1 overflow-hidden pb-[calc(56px+env(safe-area-inset-bottom))] md:pb-0">
+          {platform.kind !== "web" && !session ? (
+            <div className="absolute inset-0 z-30 grid place-items-center p-6" style={{ background: "var(--bg)" }}>
+              <div className="w-full max-w-[340px] rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+                <h2 className="text-[15px] font-semibold">Entre para usar o OmniStudio</h2>
+                <p className="mt-1.5 text-[11.5px] leading-relaxed" style={{ color: "var(--muted)" }}>
+                  No app instalado a conta é obrigatória: é ela que restaura suas chaves e libera o controle remoto do PC.
+                </p>
+                <button type="button" onClick={openAuth} className="btn mt-3 w-full justify-center">
+                  Entrar ou criar conta
+                </button>
+                <p className="mt-2 text-[10px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+                  No navegador o acesso continua livre, sem muro de login.
+                </p>
+              </div>
+            </div>
+          ) : null}
           {view === "chat" ? <ChatView /> : null}
           {view === "studio" ? <StudioView showCanvas={!inspectorOpen} /> : null}
           {view === "agent" ? <AgentView platform={platform} /> : null}
@@ -424,6 +471,7 @@ function Shell() {
       </nav>
 
       <AuthModal />
+      <DownloadsModal open={downloadsOpen} onClose={() => setDownloadsOpen(false)} />
       {studio ? <span className="sr-only">Estúdio pronto</span> : null}
     </div>
   );

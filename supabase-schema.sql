@@ -82,3 +82,38 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- Chaves adicionadas depois: Mistral e a chave pessoal da Composio.
+alter table public.api_keys add column if not exists mistral text not null default '';
+alter table public.api_keys add column if not exists composio text not null default '';
+
+-- Controle remoto: o app instalado publica presença e recebe tarefas do celular.
+create table if not exists public.remote_sessions (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  device_id text not null,
+  device_name text not null default '',
+  os text not null default '',
+  status text not null default 'online',
+  last_seen timestamptz not null default now(),
+  primary key (user_id, device_id)
+);
+
+create table if not exists public.remote_commands (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  command text not null,
+  status text not null default 'queued',
+  output text not null default '',
+  created_at timestamptz not null default now()
+);
+
+alter table public.remote_sessions enable row level security;
+alter table public.remote_commands enable row level security;
+
+drop policy if exists "own remote sessions" on public.remote_sessions;
+create policy "own remote sessions" on public.remote_sessions
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "own remote commands" on public.remote_commands;
+create policy "own remote commands" on public.remote_commands
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);

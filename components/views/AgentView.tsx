@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   Circle,
@@ -30,6 +30,17 @@ import {
 } from "@/lib/agent";
 import type { AgentLogEntry, AgentStep, SkillDefinition } from "@/lib/types";
 import { Badge, cn } from "../ui";
+import { useAuth } from "@/lib/auth-store";
+import {
+  installedDefinitions,
+  installedSkills,
+  filterCatalog,
+  toggleSkill,
+  SKILL_CATEGORIES,
+  type InstalledSkill,
+} from "@/lib/skills-store";
+import { listCommands, listDevices, queueCommand, type RemoteCommand, type RemoteDevice } from "@/lib/remote";
+import { DOWNLOADS, downloadUrl } from "@/lib/releases";
 
 export default function AgentView({ platform }: { platform: PlatformInfo }) {
   const { settings } = useSettings();
@@ -47,6 +58,56 @@ export default function AgentView({ platform }: { platform: PlatformInfo }) {
   const { registerAgent } = useWorkspace();
   const cancelRef = useRef(false);
   const logEnd = useRef<HTMLDivElement | null>(null);
+
+  const { session } = useAuth();
+  const [skillQuery, setSkillQuery] = useState("");
+  const [skillCategory, setSkillCategory] = useState<string | null>(null);
+  const [installed, setInstalled] = useState<InstalledSkill[]>([]);
+  const [devices, setDevices] = useState<RemoteDevice[]>([]);
+  const [remoteCommand, setRemoteCommand] = useState("");
+  const [remoteCommands, setRemoteCommands] = useState<RemoteCommand[]>([]);
+  const [showMarket, setShowMarket] = useState(false);
+
+  useEffect(() => {
+    setInstalled(installedSkills());
+  }, []);
+
+  const catalog = useMemo(
+    () => filterCatalog({ query: skillQuery, category: skillCategory }).slice(0, 24),
+    [skillQuery, skillCategory],
+  );
+
+  useEffect(() => {
+    if (!session) {
+      setDevices([]);
+      setRemoteCommands([]);
+      return;
+    }
+    let alive = true;
+    const load = async () => {
+      const [nextDevices, nextCommands] = await Promise.all([
+        listDevices(settings.supabase, session),
+        listCommands(settings.supabase, session),
+      ]);
+      if (!alive) return;
+      setDevices(nextDevices);
+      setRemoteCommands(nextCommands);
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 10000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [session, settings.supabase]);
+
+  const sendRemote = async () => {
+    const command = remoteCommand.trim();
+    if (!command || !session) return;
+    setRemoteCommand("");
+    await queueCommand(settings.supabase, session, command);
+    setRemoteCommands(await listCommands(settings.supabase, session));
+  };
 
   const bridge = platform.bridge;
   const native = Boolean(bridge);
@@ -112,7 +173,7 @@ export default function AgentView({ platform }: { platform: PlatformInfo }) {
           task: prompt,
           bridge,
           rootLabel: root || "raiz do projeto",
-          skills,
+          skills: [...skills, ...installedDefinitions()],
           brain: { keys: settings.keys, fallback: settings.fallback },
           isCancelled: () => cancelRef.current,
         },
@@ -216,6 +277,155 @@ export default function AgentView({ platform }: { platform: PlatformInfo }) {
               }}
             />
           </label>
+        </div>
+
+        <div className="mb-3">
+          <div className="mb-1.5 flex items-center justify-between">
+            <p className="text-[10px] font-medium uppercase tracking-wide" style={{ color: "var(--muted-2)" }}>
+              Loja de skills
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowMarket((prev) => !prev)}
+              className="text-[10px]"
+              style={{ color: "var(--muted-2)" }}
+            >
+              {showMarket ? "fechar" : `${installed.length} instalada(s)`}
+            </button>
+          </div>
+          {showMarket ? (
+            <div className="space-y-1.5">
+              <input
+                value={skillQuery}
+                onChange={(event) => setSkillQuery(event.target.value)}
+                placeholder="Buscar skill"
+                aria-label="Buscar skill"
+                className="input !h-8 !text-[11px]"
+              />
+              <select
+                value={skillCategory ?? ""}
+                onChange={(event) => setSkillCategory(event.target.value || null)}
+                aria-label="Categoria da skill"
+                className="input !h-8 !text-[11px]"
+              >
+                <option value="">Todas as categorias</option>
+                {SKILL_CATEGORIES.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+              <div className="max-h-[240px] space-y-1 overflow-y-auto pr-0.5">
+                {catalog.map((skill) => {
+                  const active = installed.some((item) => item.name === skill.name);
+                  return (
+                    <div
+                      key={skill.name}
+                      className="rounded-lg border px-2 py-1.5"
+                      style={{ borderColor: active ? "var(--accent)" : "var(--border)" }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-[11px] font-medium">{skill.title}</p>
+                          <p className="truncate text-[9.5px]" style={{ color: "var(--muted-2)" }}>
+                            {skill.category} · {skill.name}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setInstalled(toggleSkill(skill))}
+                          className="shrink-0 text-[10px] underline decoration-dotted"
+                          style={{ color: active ? "var(--text)" : "var(--muted-2)" }}
+                        >
+                          {active ? "remover" : "instalar"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {catalog.length === 0 ? (
+                  <p className="text-[10px]" style={{ color: "var(--muted-2)" }}>
+                    Nada encontrado para essa busca.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <p className="text-[10px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+              {installed.length} de 100 skills instaladas. Abra a loja para buscar por categoria.
+            </p>
+          )}
+        </div>
+
+        <div className="mb-3">
+          <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide" style={{ color: "var(--muted-2)" }}>
+            Controle remoto
+          </p>
+          {devices.some((device) => device.status !== "offline") ? (
+            <div className="space-y-1.5">
+              <p className="text-[10.5px] font-medium" style={{ color: "#4ade80" }}>
+                Sessão Remota Conectada (PC Online)
+              </p>
+              {devices
+                .filter((device) => device.status !== "offline")
+                .map((device) => (
+                  <p key={device.deviceId} className="truncate text-[10px]" style={{ color: "var(--muted-2)" }}>
+                    {device.name} · {device.os}
+                  </p>
+                ))}
+              <div className="flex gap-1.5">
+                <input
+                  value={remoteCommand}
+                  onChange={(event) => setRemoteCommand(event.target.value)}
+                  placeholder="ex.: git status"
+                  aria-label="Comando remoto"
+                  className="input !h-8 mono !text-[10.5px]"
+                />
+                <button type="button" onClick={() => void sendRemote()} className="btn shrink-0 !text-[10.5px]">
+                  Enviar
+                </button>
+              </div>
+              <div className="max-h-[140px] space-y-1 overflow-y-auto">
+                {remoteCommands.slice(0, 6).map((command) => (
+                  <div key={command.id} className="rounded border px-1.5 py-1" style={{ borderColor: "var(--border)" }}>
+                    <p className="mono truncate text-[9.5px]" style={{ color: "var(--muted-2)" }}>
+                      {command.status} · {command.command}
+                    </p>
+                    {command.output ? (
+                      <pre className="mono mt-0.5 max-h-[60px] overflow-auto whitespace-pre-wrap text-[9px]" style={{ color: "var(--muted)" }}>
+                        {command.output.slice(0, 400)}
+                      </pre>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1.5 rounded-lg border p-2" style={{ borderColor: "var(--border)" }}>
+              <p className="text-[10.5px] font-medium">Modo Agente disponível apenas no App ou CLI</p>
+              <p className="text-[10px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+                Terminal e arquivos locais rodam no app instalado. No navegador você fala com o PC pela sessão remota.
+              </p>
+              <div className="grid gap-1">
+                {DOWNLOADS.map((item) => (
+                  <a
+                    key={item.key}
+                    href={downloadUrl(item.key)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn btn-ghost !justify-start !text-[10px]"
+                  >
+                    {item.label} · {item.platform}
+                  </a>
+                ))}
+              </div>
+              {!session ? (
+                <p className="text-[10px]" style={{ color: "var(--muted-2)" }}>
+                  Entre na conta para liberar a sessão remota.
+                </p>
+              ) : null}
+            </div>
+          )}
         </div>
 
         <div className="mb-3">

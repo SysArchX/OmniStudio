@@ -111,6 +111,7 @@ export interface ComposeOptions {
   time: number;
   timeline: { items: SceneTiming[]; duration: number };
   accent?: string;
+  watermark?: boolean;
 }
 
 export function composeFrame(ctx: CanvasRenderingContext2D, options: ComposeOptions) {
@@ -145,7 +146,7 @@ export function composeFrame(ctx: CanvasRenderingContext2D, options: ComposeOpti
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillStyle = "rgba(255,255,255,0.42)";
-  ctx.fillText("OmniStudio · SysArchX", VIDEO_W / 2, VIDEO_H - 46);
+  ctx.fillText(options.watermark === false ? "" : "Feito com OmniStudio", VIDEO_W / 2, VIDEO_H - 46);
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   void height;
@@ -177,6 +178,8 @@ export interface RecordOptions {
   onProgress: (progress: number) => void;
   isCancelled: () => boolean;
   audioUrl?: string | null;
+  /** Locução neural já decodificada, posicionada no tempo do vídeo. */
+  narration?: Array<{ buffer: AudioBuffer; start: number }>;
   bitrate?: number;
 }
 
@@ -199,6 +202,15 @@ export async function recordVideo(options: RecordOptions): Promise<RecordResult>
 
   const sfxStream = sfx.getStream();
   sfxStream?.getAudioTracks().forEach((track) => destination.stream.addTrack(track));
+
+  const narrationSources: AudioBufferSourceNode[] = [];
+  for (const track of options.narration ?? []) {
+    const source = audioContext.createBufferSource();
+    source.buffer = track.buffer;
+    source.connect(destination);
+    source.start(audioContext.currentTime + 0.06 + track.start);
+    narrationSources.push(source);
+  }
 
   let audioElement: HTMLAudioElement | null = null;
   if (options.audioUrl) {
@@ -269,6 +281,13 @@ export async function recordVideo(options: RecordOptions): Promise<RecordResult>
 
   if (recorder.state !== "inactive") recorder.stop();
   const blob = await finished;
+  narrationSources.forEach((source) => {
+    try {
+      source.stop();
+    } catch {
+      /* já terminou */
+    }
+  });
   audioElement?.pause();
   stream.getTracks().forEach((track) => track.stop());
   void audioContext.close();
@@ -276,6 +295,49 @@ export async function recordVideo(options: RecordOptions): Promise<RecordResult>
 
   if (!blob.size) throw new Error("A gravação não gerou dados. Mantenha a aba visível e tente de novo.");
   return { blob, url: URL.createObjectURL(blob), extension: ext, mime, size: blob.size };
+}
+
+function srtTime(seconds: number) {
+  const total = Math.max(0, seconds);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = Math.floor(total % 60);
+  const ms = Math.round((total - Math.floor(total)) * 1000);
+  const pad = (value: number, size = 2) => String(value).padStart(size, "0");
+  return `${pad(hours)}:${pad(minutes)}:${pad(secs)},${pad(ms, 3)}`;
+}
+
+/** Legendas .srt com o texto de cada cena, sem cortar palavras. */
+export function buildSrt(project: StudioProject) {
+  const timeline = buildTimeline(project);
+  return timeline.items
+    .map((item, index) => {
+      const text = item.scene.text.trim();
+      if (!text) return "";
+      return `${index + 1}\n${srtTime(item.start)} --> ${srtTime(item.end)}\n${text}\n`;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function downloadSrt(projectTitle: string, project: StudioProject) {
+  const slug =
+    projectTitle
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "omnistudio";
+  const blob = new Blob([buildSrt(project)], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${slug}.srt`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
 export function downloadVideo(projectTitle: string, result: RecordResult) {

@@ -5,9 +5,16 @@ import { Download, Loader2, Music2, Pause, Play, Plus, Sparkles, Volume2 } from 
 import { useSettings } from "@/lib/settings-store";
 import { useWorkspace } from "@/lib/workspace-store";
 import { generateVideoScript, ANIMATIONS, ENVIRONMENTS } from "@/lib/script-gen";
-import { buildTimeline, composeFrame, downloadVideo, recordVideo, type RecordResult } from "@/lib/video-render";
+import {
+  buildTimeline,
+  composeFrame,
+  downloadSrt,
+  downloadVideo,
+  recordVideo,
+  type RecordResult,
+} from "@/lib/video-render";
 import { VIDEO_H, VIDEO_W } from "@/lib/scene2d";
-import { cancelSpeech, loadUserAudio, onVoicesChanged, speak } from "@/lib/tts";
+import { buildNarration, cancelSpeech, loadUserAudio, onVoicesChanged, speak, type NeuralVoice } from "@/lib/tts";
 import { SfxEngine, type SfxName } from "@/lib/sfx";
 import type { StudioProject, VideoScene } from "@/lib/types";
 import { Badge, Range } from "../ui";
@@ -34,6 +41,9 @@ export default function StudioView({ showCanvas = true }: { showCanvas?: boolean
   const [result, setResult] = useState<RecordResult | null>(null);
   const [audio, setAudio] = useState<{ url: string; name: string } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [narrationOn, setNarrationOn] = useState(true);
+  const [narrationVoice, setNarrationVoice] = useState<NeuralVoice>("pt-BR-AntonioNeural");
+  const [watermark, setWatermark] = useState(true);
 
   const canvasRef = studioCanvas;
   const timeRef = useRef(0);
@@ -70,9 +80,9 @@ export default function StudioView({ showCanvas = true }: { showCanvas?: boolean
         ctx.fillText("720 × 1280 · 30 FPS", VIDEO_W / 2, VIDEO_H / 2 + 24);
         return;
       }
-      composeFrame(ctx, { project, time, timeline });
+      composeFrame(ctx, { project, time, timeline, watermark });
     },
-    [project, timeline],
+    [project, timeline, watermark],
   );
 
   useEffect(() => {
@@ -187,18 +197,38 @@ export default function StudioView({ showCanvas = true }: { showCanvas?: boolean
     cues.push({ time: Math.max(0, timeline.duration - 0.4), sfx: "ding" });
 
     try {
+      let narration: Array<{ buffer: AudioBuffer; start: number }> = [];
+      let audioContext: AudioContext | null = null;
+      if (narrationOn) {
+        setMessage("Baixando locução neural pt-BR...");
+        audioContext = new AudioContext();
+        narration = await buildNarration(
+          audioContext,
+          timeline.items.map((item) => ({ text: item.scene.text, start: item.start, duration: item.scene.duration })),
+          narrationVoice,
+        );
+      }
+
       const recorded = await recordVideo({
         canvas,
         duration: timeline.duration,
         sfx,
         cues,
         audioUrl: audio?.url ?? null,
-        draw: (time) => composeFrame(canvas.getContext("2d")!, { project, time, timeline }),
+        narration,
+        draw: (time) => composeFrame(canvas.getContext("2d")!, { project, time, timeline, watermark }),
         onProgress: setProgress,
         isCancelled: () => cancelRef.current,
       });
+      await audioContext?.close();
       setResult(recorded);
-      setMessage("Vídeo pronto. Narração por voz do navegador não entra na gravação; use o áudio próprio se precisar.");
+      setMessage(
+        narrationOn
+          ? narration.length
+            ? `Vídeo com ${narration.length} bloco(s) de locução neural pt-BR.`
+            : "Vídeo pronto sem locução: o serviço de voz neural não respondeu (bloqueio de rede/CORS). O áudio próprio continua funcionando."
+          : "Vídeo pronto, sem locução.",
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Falha ao exportar.");
     } finally {
@@ -328,6 +358,35 @@ export default function StudioView({ showCanvas = true }: { showCanvas?: boolean
               trilha: {audio.name}
             </p>
           ) : null}
+          <div className="mt-3 space-y-2">
+            <label className="flex items-center justify-between gap-2 text-[10.5px]" style={{ color: "var(--muted)" }}>
+              Narração neural no vídeo
+              <input
+                type="checkbox"
+                checked={narrationOn}
+                onChange={(event) => setNarrationOn(event.target.checked)}
+                aria-label="Narração neural no vídeo"
+              />
+            </label>
+            <select
+              value={narrationVoice}
+              onChange={(event) => setNarrationVoice(event.target.value as NeuralVoice)}
+              className="input !h-7 !text-[10.5px]"
+              aria-label="Voz neural"
+            >
+              <option value="pt-BR-AntonioNeural">Antonio · neural pt-BR</option>
+              <option value="pt-BR-FranciscaNeural">Francisca · neural pt-BR</option>
+            </select>
+            <label className="flex items-center justify-between gap-2 text-[10.5px]" style={{ color: "var(--muted)" }}>
+              Marca “Feito com OmniStudio”
+              <input
+                type="checkbox"
+                checked={watermark}
+                onChange={(event) => setWatermark(event.target.checked)}
+                aria-label="Marca do criador"
+              />
+            </label>
+          </div>
           <div className="mt-3">
             <Range
               label="Velocidade da voz"
@@ -365,6 +424,14 @@ export default function StudioView({ showCanvas = true }: { showCanvas?: boolean
             Baixar {result.extension.toUpperCase()} ({(result.size / 1_000_000).toFixed(1)} MB)
           </button>
         ) : null}
+        <button
+          type="button"
+          onClick={() => downloadSrt(project.title, project)}
+          disabled={!project.scenes.length}
+          className="btn btn-ghost mt-2 w-full justify-center !text-[11px]"
+        >
+          Exportar Legenda (.srt)
+        </button>
       </aside>
 
       <section className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4">

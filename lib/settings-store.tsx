@@ -22,7 +22,7 @@ export const ACCENTS = [
 ];
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  keys: { groq: "", openrouter: "" },
+  keys: { openrouter: "", groq: "", mistral: "", composio: "" },
   fallback: true,
   theme: "obsidian",
   accent: "#e4e4e7",

@@ -209,7 +209,7 @@ export async function runAgentTask(
     }
     const result = await runBrain(history, brain);
     if (result.provider === "local") {
-      const message = "Nenhum provedor configurado. Configure Groq, OpenRouter ou GitHub Models em Configurações para o agente executar.";
+      const message = "Nenhum provedor configurado. Configure OpenRouter, Groq ou Mistral em Configurações para o agente executar.";
       log("error", message);
       return { ok: false, answer: message };
     }

@@ -7,3 +7,5 @@ android
 .DS_Store
 next-env.d.ts
 *.env*
+.tools/
+skills-lock.json

@@ -1,16 +1,20 @@
 export const APP_NAME = "OmniStudio";
-export const APP_VERSION = "1.2.0";
+export const APP_VERSION = "1.5.0";
 export const OWNER = "SysArchX";
 export const REPO = "OmniStudio";
 export const REPO_URL = `https://github.com/${OWNER}/${REPO}`;
 export const RELEASES_URL = `${REPO_URL}/releases/latest`;
 export const PROFILE_URL = `https://github.com/${OWNER}`;
+export const WEB_URL = "https://site-18ac632e87d148d6ac36f5819bc6945b.freebuff.page";
+export const SHORT_URL = "https://is.gd/omnistudio";
 
 export const ASSETS = {
   win: "OmniStudio-Setup.exe",
   deb: "OmniStudio.deb",
   pacman: "OmniStudio.pacman",
   apk: "OmniStudio.apk",
+  ipa: "OmniStudio-iOS.ipa",
+  cli: "omnistudio-linux-cli.tar.gz",
   pkgbuild: "PKGBUILD",
 } as const;
 
@@ -39,6 +43,14 @@ export const DOWNLOADS: Array<{
     command: "sudo pacman -U OmniStudio.pacman",
   },
   { key: "apk", label: "Android", platform: "7.0+", detail: "APK universal com WebView" },
+  { key: "ipa", label: "iPhone e iPad", platform: "iOS 15+", detail: "Pacote não assinado para instalar via AltStore" },
+  {
+    key: "cli",
+    label: "Linux CLI",
+    platform: "x86_64",
+    detail: "Agente de terminal com sessão remota",
+    command: "tar -xzf omnistudio-linux-cli.tar.gz",
+  },
 ];
 
 export function downloadUrl(asset: AssetKey) {

@@ -1,4 +1,4 @@
-name: Build de instaladores
+name: Build e release multiplataforma
 
 on:
   push:
@@ -9,112 +9,214 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  desktop:
-    name: ${{ matrix.name }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            name: Windows
-            artifact: release/OmniStudio-Setup.exe
-            out: OmniStudio-Setup.exe
-            command: npx electron-builder --win nsis --publish never
-          - os: ubuntu-latest
-            name: Debian
-            artifact: release/OmniStudio.deb
-            out: OmniStudio.deb
-            command: npx electron-builder --linux deb --publish never
-          - os: ubuntu-latest
-            name: Arch
-            artifact: release/OmniStudio.pacman
-            out: OmniStudio.pacman
-            command: npx electron-builder --linux pacman --publish never
-    runs-on: ${{ matrix.os }}
+  windows:
+    name: Windows (.exe)
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
-
       - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
-
-      - name: Instalar dependências
-        run: npm ci
-
-      - name: Build web
-        run: npm run build
-
-      - name: Empacotar
-        run: ${{ matrix.command }}
-
-      - name: Renomear artefato
+      - run: npm ci
+      - run: npm run build
+      - name: Empacotar NSIS
+        run: npx electron-builder --win nsis --publish never
+      - name: Publicar artefato
         shell: bash
-        run: cp "${{ matrix.artifact }}" "${{ matrix.out }}"
-
+        run: |
+          cp release/*.exe OmniStudio-Setup.exe
+          ls -lh OmniStudio-Setup.exe
       - uses: actions/upload-artifact@v4
         with:
-          name: omni-${{ matrix.name }}
-          path: ${{ matrix.out }}
+          name: windows
+          path: OmniStudio-Setup.exe
+          if-no-files-found: error
 
-  android:
-    name: Android
+  debian:
+    name: Debian (.deb)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-
       - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
-
-      - name: Instalar dependências
-        run: npm ci
-
-      - name: Build web
-        run: npm run build
-
-      - name: Adicionar plataforma Android
-        run: npx cap add android || npx cap sync android
-
-      - name: Configurar keystore para build de release
+      - run: npm ci
+      - run: npm run build
+      - name: Empacotar .deb
         run: |
-          echo "keystore.storeFile=${{ secrets.ANDROID_KEYSTORE_FILE }}" >> android/local.properties
-          echo "keystore.storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/local.properties
-          echo "keystore.keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/local.properties
-          echo "keystore.keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/local.properties
+          sudo apt-get update
+          sudo apt-get install -y fakeroot dpkg-dev rpm
+          npx electron-builder --linux deb --publish never
+      - name: Publicar artefato
+        run: |
+          cp release/*.deb OmniStudio.deb
+          ls -lh OmniStudio.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debian
+          path: OmniStudio.deb
+          if-no-files-found: error
 
+  arch:
+    name: Arch (.pacman)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Empacotar pacote Arch
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot dpkg-dev rpm
+          npx electron-builder --linux pacman --publish never
+      - name: Publicar artefato
+        run: |
+          cp release/*.pacman OmniStudio.pacman
+          ls -lh OmniStudio.pacman
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch
+          path: OmniStudio.pacman
+          if-no-files-found: error
+
+  android:
+    name: Android (.apk)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      - run: npm ci
+      - run: npm run build
+      - name: Sincronizar Capacitor
+        run: |
+          npx cap add android || true
+          npx cap sync android
+      - name: Assinar com chave gerada no job
+        run: |
+          keytool -genkeypair -v -keystore release.keystore -alias omnistudio \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass omnistudio -keypass omnistudio \
+            -dname "CN=OmniStudio, O=SysArchX, C=BR"
+          cat >> android/app/build.gradle <<'GRADLE'
+
+          android {
+            signingConfigs {
+              release {
+                storeFile file("../../release.keystore")
+                storePassword "omnistudio"
+                keyAlias "omnistudio"
+                keyPassword "omnistudio"
+              }
+            }
+            buildTypes {
+              release {
+                signingConfig signingConfigs.release
+              }
+            }
+          }
+          GRADLE
       - name: Compilar APK
         working-directory: android
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
-
-      - name: Preparar arquivo
+      - name: Publicar artefato
         run: |
-          cp android/app/build/outputs/apk/release/app-release.apk "${{ github.run_number }}.apk"
-          ls -lh "${{ github.run_number }}.apk"
-
+          cp android/app/build/outputs/apk/release/app-release.apk OmniStudio.apk
+          ls -lh OmniStudio.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: omni-Android
-          path: "${{ github.run_number }}.apk"
+          name: android
+          path: OmniStudio.apk
+          if-no-files-found: error
+
+  ios:
+    name: iOS (.ipa)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Sincronizar Capacitor iOS
+        run: |
+          npx cap add ios || true
+          npx cap sync ios
+      - name: Compilar sem assinatura
+        env:
+          CODE_SIGNING_ALLOWED: "NO"
+          CODE_SIGNING_REQUIRED: "NO"
+        run: |
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace -scheme App -configuration Release \
+            -sdk iphoneos -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO | tail -40
+      - name: Empacotar .ipa
+        run: |
+          mkdir -p Payload
+          cp -R ios/App/build/Build/Products/Release-iphoneos/App.app Payload/OmniStudio.app
+          zip -qry OmniStudio-iOS.ipa Payload
+          ls -lh OmniStudio-iOS.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: OmniStudio-iOS.ipa
+          if-no-files-found: error
+
+  cli:
+    name: Linux CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Empacotar CLI
+        run: |
+          mkdir -p dist-cli/omnistudio
+          cp cli/omnistudio.mjs dist-cli/omnistudio/
+          cp scripts/install-cli.sh dist-cli/omnistudio/
+          chmod +x dist-cli/omnistudio/omnistudio.mjs dist-cli/omnistudio/install-cli.sh
+          tar -czf omnistudio-linux-cli.tar.gz -C dist-cli omnistudio
+          ls -lh omnistudio-linux-cli.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli
+          path: omnistudio-linux-cli.tar.gz
+          if-no-files-found: error
 
   release:
     name: Publicar release
-    needs: [desktop, android]
+    needs: [windows, debian, arch, android, ios, cli]
     runs-on: ubuntu-latest
-    permissions: { contents: write }
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
-
-      - name: Listar arquivos
-        run: ls -la artifacts
-
+      - name: Conferir artefatos
+        run: ls -lh artifacts
       - name: Criar release
         uses: softprops/action-gh-release@v2
         with:
@@ -126,4 +228,5 @@ jobs:
             artifacts/OmniStudio.deb
             artifacts/OmniStudio.pacman
             artifacts/OmniStudio.apk
-            packaging/arch/PKGBUILD
+            artifacts/OmniStudio-iOS.ipa
+            artifacts/omnistudio-linux-cli.tar.gz

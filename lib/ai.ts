@@ -33,24 +33,27 @@ export class ProviderError extends Error {
   }
 }
 
-export const PROVIDER_ORDER: ProviderId[] = ["groq", "openrouter"];
+export const PROVIDER_ORDER: ProviderId[] = ["openrouter", "groq", "mistral"];
 
 export const PROVIDER_LABEL: Record<ProviderId, string> = {
-  groq: "Groq",
   openrouter: "OpenRouter",
+  groq: "Groq",
+  mistral: "Mistral",
 };
 
 export const PROVIDER_MODEL: Record<ProviderId, string> = {
-  groq: "llama-3.3-70b-versatile",
   openrouter: "openrouter/free",
+  groq: "llama-3.3-70b-versatile",
+  mistral: "mistral-small-latest",
 };
 
 /** Fallbacks usados só quando a OpenRouter recusa o roteador free. */
 const OPENROUTER_FALLBACKS = ["nvidia/nemotron-3-ultra-550b-a55b:free", "google/gemma-4-31b-it:free"];
 
 const KEY_HELP: Record<ProviderId, string> = {
-  groq: "console.groq.com/keys",
   openrouter: "openrouter.ai/keys",
+  groq: "console.groq.com/keys",
+  mistral: "console.mistral.ai/api-keys",
 };
 
 export function providerKeyHelp(provider: ProviderId) {
@@ -130,6 +133,18 @@ async function callOpenRouterOnce(messages: BrainMessage[], key: string, model: 
   return text;
 }
 
+async function callMistral(messages: BrainMessage[], key: string) {
+  const result = await postJson(
+    "https://api.mistral.ai/v1/chat/completions",
+    { model: PROVIDER_MODEL.mistral, messages: toPlain(messages), temperature: 0.7, max_tokens: 2048 },
+    { Authorization: `Bearer ${key}` },
+  );
+  if (!result.ok) throw new ProviderError("mistral", classify(result.status), result.text.slice(0, 240), result.status);
+  const text = readChoice(result.text);
+  if (!text) throw new ProviderError("mistral", "other", "Resposta vazia do provedor.");
+  return text;
+}
+
 async function callOpenRouter(messages: BrainMessage[], key: string) {
   let lastError: unknown;
   for (const model of [PROVIDER_MODEL.openrouter, ...OPENROUTER_FALLBACKS]) {
@@ -147,6 +162,7 @@ async function callOpenRouter(messages: BrainMessage[], key: string) {
 
 async function callProvider(provider: ProviderId, messages: BrainMessage[], key: string) {
   if (provider === "groq") return callGroq(messages, key);
+  if (provider === "mistral") return callMistral(messages, key);
   return callOpenRouter(messages, key);
 }
 
@@ -161,7 +177,7 @@ function friendly(error: unknown) {
   return "falha de rede";
 }
 
-/** Groq, depois OpenRouter, depois GitHub Models. Sem chave, cérebro local. */
+/** OpenRouter, depois Groq, depois Mistral. Sem chave, cérebro local. */
 export async function runBrain(messages: BrainMessage[], config: BrainConfig): Promise<BrainResult> {
   const attempts: Array<{ provider: ProviderId; ok: boolean; detail?: string }> = [];
   const withSystem: BrainMessage[] = messages.some((message) => message.role === "system")
@@ -197,14 +213,22 @@ export interface ProviderTestResult {
 }
 
 /** Persona e regras de estilo enviadas em toda conversa. */
+/** Data corrente em pt-BR, injetada no prompt para o modelo não responder com corte de treino. */
+export function todayLabel() {
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "long" }).format(new Date());
+}
+
+/** Persona e regras de estilo enviadas em toda conversa. */
 export const SYSTEM_PROMPT = [
-  "Você é o OmniStudio, assistente em português do Brasil.",
-  "Fale como uma pessoa: direto, caloroso e sem tom de manual.",
-  "Responda exatamente o que foi pedido, no tamanho necessário. Um cumprimento recebe um cumprimento curto de volta, nunca um plano de ação.",
+  "Você é o OmniStudio, assistente brasileiro com opinião própria, feito para resolver, não para enrolar.",
+  `Hoje é ${todayLabel()}. Trate este ano como o presente: se o assunto mudou depois do seu corte de treino, diga que não sabe em vez de inventar.`,
+  "Escreva como uma pessoa conversando: frases curtas, calorosas, com humor quando couber. Nunca soe como manual corporativo.",
+  "Responda exatamente o que foi pedido, no tamanho necessário. Cumprimento recebe cumprimento curto, não um plano de ação.",
   "Nunca use o molde \"Diga o objetivo / o que já existe / o que impede de terminar\".",
-  "Se a mensagem trouxer um bloco \"Contexto de pesquisa\", use apenas o que for pertinente à pergunta. Se nada servir, ignore o bloco e responda pelo seu conhecimento, sem listar fontes.",
+  "Seja proativo: quando a pergunta for vaga, escolha a interpretação mais útil, entregue o resultado e ofereça o próximo passo em uma linha.",
+  "Se a mensagem trouxer \"Contexto de pesquisa\" com páginas ao vivo, priorize esse conteúdo, cite a fonte pelo nome e diga a data quando importar. Se nada servir, ignore o bloco e responda pelo seu conhecimento, sem listar fontes.",
   "Tabelas só quando houver dados para comparar; evite enfeite e excesso de emoji.",
-  "Código sempre em bloco com a linguagem marcada.",
+  "Código sempre em bloco com a linguagem marcada, completo e executável.",
 ].join("\n");
 
 /** Atalhos que não valem uma pesquisa na web (cumprimentos, agradecimentos, ok). */
@@ -248,7 +272,7 @@ export interface SearchHit {
   title: string;
   url: string;
   snippet: string;
-  origin: "Wikipédia" | "DuckDuckGo";
+  origin: "Wikipédia" | "DuckDuckGo" | "Tavily";
 }
 
 async function searchWikipedia(query: string, lang: "pt" | "en"): Promise<SearchHit[]> {

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Globe, Loader2, MessageSquarePlus, Sparkles } from "lucide-react";
 import { useSettings } from "@/lib/settings-store";
+import { useAuth } from "@/lib/auth-store";
 import { useWorkspace } from "@/lib/workspace-store";
 import { PROVIDER_LABEL, PROVIDER_ORDER, PROVIDER_MODEL, looksLikeSearchQuery, researchBlock, runBrain } from "@/lib/ai";
 import type { SearchHit } from "@/lib/ai";
@@ -23,12 +24,13 @@ function messageId() {
 
 export default function ChatView() {
   const { settings } = useSettings();
+  const { session } = useAuth();
   const { active, createConversation, patchConversation, setSources } = useWorkspace();
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  const [webEnabled, setWebEnabled] = useState(false);
-  const [preferred, setPreferred] = useState<ProviderId>("groq");
+  const [webEnabled, setWebEnabled] = useState(true);
+  const [preferred, setPreferred] = useState<ProviderId>("openrouter");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
 
@@ -114,9 +116,33 @@ export default function ChatView() {
         <div className="mx-auto max-w-3xl">
           {empty ? (
             <div className="pb-2">
-              <h2 className="text-[22px] font-semibold tracking-[-0.02em] sm:text-[26px]">O que vamos criar hoje?</h2>
+              {session ? (
+                <div className="flex items-center gap-2.5">
+                  {session.user.avatar ? (
+                    <img
+                      src={session.user.avatar}
+                      alt=""
+                      referrerPolicy="no-referrer"
+                      className="h-9 w-9 rounded-full border"
+                      style={{ borderColor: "var(--border)" }}
+                    />
+                  ) : (
+                    <span
+                      className="grid h-9 w-9 place-items-center rounded-full text-[11px] font-medium"
+                      style={{ background: "var(--surface-3)" }}
+                    >
+                      {(session.user.name || session.user.email || "OS").slice(0, 2).toUpperCase()}
+                    </span>
+                  )}
+                  <h2 className="text-[22px] font-semibold tracking-[-0.02em] sm:text-[26px]">
+                    Olá, {(session.user.name || session.user.email || "você").split(/[\s@]/)[0]}
+                  </h2>
+                </div>
+              ) : (
+                <h2 className="text-[22px] font-semibold tracking-[-0.02em] sm:text-[26px]">O que vamos criar hoje?</h2>
+              )}
               <p className="mt-2 max-w-lg text-[12.5px] leading-relaxed" style={{ color: "var(--muted)" }}>
-                Groq responde primeiro e o OpenRouter assume se a Groq falhar. A pesquisa web funciona sem chave.
+                OpenRouter responde primeiro e Groq ou Mistral assumem se ele falhar. A pesquisa web já vem ligada.
               </p>
               <div className="mt-5 grid gap-2 sm:grid-cols-2">
                 {SUGGESTIONS.map((item) => (

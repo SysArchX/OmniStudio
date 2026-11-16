@@ -115,8 +115,10 @@ export async function pushKeys(
   try {
     await restUpsert(config, session, "api_keys", {
       user_id: session.user.id,
-      groq: keys.groq ?? "",
       openrouter: keys.openrouter ?? "",
+      groq: keys.groq ?? "",
+      mistral: keys.mistral ?? "",
+      composio: keys.composio ?? "",
       updated_at: new Date().toISOString(),
     });
     return { ok: true, message: "Chaves salvas na sua conta." };
@@ -132,13 +134,22 @@ export async function pullKeys(
 ): Promise<PullResult<AppSettings["keys"]>> {
   if (!session) return { ok: false, message: "Entre na conta para baixar as chaves." };
   try {
-    const rows = (await restSelect(config, session, "api_keys", "select=groq,openrouter&limit=1")) as Array<{
-      groq?: string;
+    const rows = (await restSelect(config, session, "api_keys", "select=openrouter,groq,mistral,composio&limit=1")) as Array<{
       openrouter?: string;
+      groq?: string;
+      mistral?: string;
+      composio?: string;
     }>;
     if (!rows[0]) return { ok: false, message: "Nenhuma chave salva nesta conta." };
-    const keys = { groq: rows[0].groq ?? "", openrouter: rows[0].openrouter ?? "" };
-    if (!keys.groq && !keys.openrouter) return { ok: false, message: "Nenhuma chave salva nesta conta." };
+    const keys = {
+      openrouter: rows[0].openrouter ?? "",
+      groq: rows[0].groq ?? "",
+      mistral: rows[0].mistral ?? "",
+      composio: rows[0].composio ?? "",
+    };
+    if (!keys.openrouter && !keys.groq && !keys.mistral && !keys.composio) {
+      return { ok: false, message: "Nenhuma chave salva nesta conta." };
+    }
     return { ok: true, message: "Chaves restauradas da conta.", data: keys };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "Falha ao baixar as chaves." };

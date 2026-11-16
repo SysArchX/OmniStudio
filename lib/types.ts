@@ -1,10 +1,12 @@
 export type ViewId = "chat" | "studio" | "agent" | "settings" | "credits";
 
-export type ProviderId = "groq" | "openrouter";
+export type ProviderId = "openrouter" | "groq" | "mistral";
 
 export interface ApiKeys {
-  groq: string;
   openrouter: string;
+  groq: string;
+  mistral: string;
+  composio: string;
 }
 
 export type ThemeId = "obsidian" | "midnight" | "light";

@@ -94,12 +94,25 @@ export default function SettingsView() {
   const [status, setStatus] = useState<Record<ProviderId, ProviderTestResult & { testing?: boolean }>>({
     groq: { ok: false, status: "idle", message: "Standby" },
     openrouter: { ok: false, status: "idle", message: "Standby" },
+    mistral: { ok: false, status: "idle", message: "Standby" },
   });
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [sync, setSync] = useState<string | null>(null);
   const [composioKey, setComposioKeyState] = useState("");
+  const clearLocalKeys = () => {
+    updateKeys({ openrouter: "", groq: "", mistral: "", composio: "" });
+    setComposioKey("");
+    setComposioKeyState("");
+  };
 
-  useEffect(() => setComposioKeyState(getComposioKey()), []);
+  useEffect(() => {
+    const stored = settings.keys.composio || getComposioKey();
+    if (stored) {
+      setComposioKeyState(stored);
+      setComposioKey(stored);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => setVoices(ptBrVoices()), []);
@@ -206,7 +219,7 @@ export default function SettingsView() {
               <div>
                 <h2 className="text-[14px] font-semibold">Provedores gratuitos</h2>
                 <p className="mt-1 text-[11.5px] leading-relaxed" style={{ color: "var(--muted)" }}>
-                  Groq responde primeiro, OpenRouter assume no limite e o GitHub Models fecha a fila. As chaves ficam só neste dispositivo.
+                  OpenRouter responde primeiro; Groq e Mistral entram quando ele falha. As chaves ficam neste dispositivo e vão para a sua conta quando você clica em salvar.
                 </p>
               </div>
 
@@ -419,7 +432,10 @@ export default function SettingsView() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => void signOut()}
+                      onClick={() => {
+                        clearLocalKeys();
+                        void signOut();
+                      }}
                       className="flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-[11px] font-medium transition-colors hover:bg-[var(--surface-2)]"
                       style={{ color: "var(--text)", borderColor: "var(--border)" }}
                     >
@@ -507,6 +523,7 @@ export default function SettingsView() {
                   onChange={(event) => {
                     setComposioKeyState(event.target.value);
                     setComposioKey(event.target.value);
+                    updateKeys({ composio: event.target.value });
                   }}
                   placeholder="ck_..."
                   className="input mono !text-[11px]"
@@ -519,7 +536,7 @@ export default function SettingsView() {
               <div className="panel space-y-2 p-3.5">
                 <p className="text-[12px] font-medium">Sobre as chaves</p>
                 <p className="text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
-                  Groq, OpenRouter e GitHub Models são gratuitos dentro dos limites de cada serviço. A pesquisa web não usa
+                  OpenRouter, Groq e Mistral são gratuitos dentro dos limites de cada serviço. A pesquisa web não usa
                   chave: consulta Wikipédia e DuckDuckGo e lê páginas pelo Jina Reader.
                 </p>
               </div>
