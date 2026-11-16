@@ -103,7 +103,8 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - uses: android-actions/setup-android@v3
+      - name: Aceitar licenças do SDK Android pré-instalado
+        run: yes | sdkmanager --licenses > /dev/null || true
       - run: npm ci
       - run: npm run build
       - name: Sincronizar Capacitor
