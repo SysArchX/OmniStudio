@@ -82,11 +82,12 @@ export function redirectUri() {
  * sempre enviam o header via authHeaders().
  */
 export function signInWithGoogle(config?: SupabaseConfig | null) {
-  const { url } = resolve(config);
+  const { url, anonKey } = resolve(config);
   const params = new URLSearchParams({
     provider: "google",
     redirect_to: redirectUri(),
     flow_type: "implicit",
+    apikey: anonKey,
   });
   window.location.assign(`${url}/auth/v1/authorize?${params.toString()}`);
 }

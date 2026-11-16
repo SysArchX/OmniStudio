@@ -76,8 +76,13 @@ function Welcome() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    const message = params.get("error_description") || params.get("error");
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const queryParams = new URLSearchParams(window.location.search);
+    const message =
+      hashParams.get("error_description") ||
+      hashParams.get("error") ||
+      queryParams.get("error_description") ||
+      queryParams.get("error");
     if (message) {
       setError(decodeURIComponent(message.replace(/\+/g, " ")));
       window.history.replaceState(null, "", window.location.pathname);
