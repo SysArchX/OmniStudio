@@ -49,6 +49,34 @@ function newConversation(): Conversation {
 }
 
 export default function ChatView() {
+
+  const handleEmailAuthSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const code = (event.target as HTMLFormElement).code?.value.trim();
+    if (!code) return;
+    try {
+      const response = await fetch("/api/email-auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const data = await response.json();
+      if (!data.ok) {
+        throw new Error(data.error || "Código inválido.");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      window.location.href = "/#/";
+    } catch (error) {
+      alert("Falha ao verificar código: " + (error instanceof Error ? error.message : "erro desconhecido"));
+    }
+  };
+
+  const createConversation = () => {
+    const fresh = newConversation();
+    setConversations((prev) => [fresh, ...prev]);
+    setActiveId(fresh.id);
+  };
+
   const { settings } = useSettings();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string>("");
@@ -148,7 +176,7 @@ export default function ChatView() {
         sources: hits.slice(0, 6).map((hit) => ({ title: hit.title, url: hit.url })),
         at: Date.now(),
       };
-      patchConversation(active.id, { messages: [...history, assistant] });
+            patchConversation(active.id, { messages: [...history, assistant] });
     } catch (error) {
       const assistant: ChatMessage = {
         id: crypto.randomUUID(),
@@ -164,23 +192,48 @@ export default function ChatView() {
     }
   };
 
-  const createConversation = () => {
-    const fresh = newConversation();
-    setConversations((prev) => [fresh, ...prev]);
-    setActiveId(fresh.id);
+  const handleAuthWithGoogle = async () => {
+    const url = new URL(window.location.href);
+    const params = new URLSearchParams(url.search.slice(1));
+    const error = params.get("error");
+    const code = params.get("code");
+    const session = await handleGoogleCallback(code, error);
+    if (session) {
+      await restoreSession(session);
+    } else if (error) {
+      setStatus(error);
+    }
   };
 
-  const removeConversation = (id: string) => {
-    setConversations((prev) => {
-      const next = prev.filter((item) => item.id !== id);
-      if (!next.length) {
-        const fresh = newConversation();
-        setActiveId(fresh.id);
-        return [fresh];
-      }
-      if (id === activeId) setActiveId(next[0].id);
-      return next;
+  const restoreSession = async (session: any) => {
+    if (session?.access_token) {
+      localStorage.setItem("omnistudio.auth.token", session.access_token);
+      localStorage.setItem("omnistudio.auth.refresh_token", session.refresh_token || "");
+      localStorage.setItem("omnistudio.auth.expires_at", String((Date.now() + (session.expires_in || 3600) * 1000)));
+      localStorage.setItem("omnistudio.auth.user", JSON.stringify(session.user || {}));
+      setStatus("Entrando...")
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      window.location.href = "/#/";
+    }
+  };
+
+  const handleGoogleCallback = async (code: string | null, error: string | null) => {
+    if (error) return null;
+    if (!code) return null;
+    if (!window.location.hostname.includes("freebuff.page")) return null;
+    const response = await fetch("/api/auth/callback", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ code }),
     });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.session ?? null;
+  };
+
+  const empty = !active?.messages.length;
+
+  return (
   };
 
   const empty = !active?.messages.length;
@@ -333,38 +386,81 @@ export default function ChatView() {
                 aria-label="Mensagem"
                 className="w-full resize-none bg-transparent text-[12.5px] leading-relaxed outline-none placeholder:text-[var(--muted-2)]"
               />
-              <div className="mt-1.5 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
+              <div className="mt-1.5 flex flex-col sm:flex-row gap-3">
+                <div className="flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setWebEnabled((prev) => !prev)}
+                      aria-pressed={webEnabled}
+                      className="flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[10.5px] transition-colors"
+                      style={{
+                        borderColor: webEnabled ? "var(--accent)" : "var(--border)",
+                        color: webEnabled ? "var(--text)" : "var(--muted)",
+                        background: webEnabled ? "var(--accent-soft)" : "transparent",
+                      }}
+                    >
+                      <Globe className="h-3 w-3" />
+                      Pesquisa Web
+                    </button>
+                    {findLinks(input).length ? (
+                      <span className="flex items-center gap-1 text-[10px]" style={{ color: "var(--muted-2)" }}>
+                        <Link2 className="h-3 w-3" />
+                        link será lido
+                      </span>
+                    ) : null}
+                  </div>
                   <button
                     type="button"
-                    onClick={() => setWebEnabled((prev) => !prev)}
-                    aria-pressed={webEnabled}
-                    className="flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[10.5px] transition-colors"
-                    style={{
-                      borderColor: webEnabled ? "var(--accent)" : "var(--border)",
-                      color: webEnabled ? "var(--text)" : "var(--muted)",
-                      background: webEnabled ? "var(--accent-soft)" : "transparent",
-                    }}
+                    onClick={() => void send()}
+                    disabled={!input.trim() || busy}
+                    className="btn !px-2.5 !py-1.5"
+                    aria-label="Enviar"
                   >
-                    <Globe className="h-3 w-3" />
-                    Pesquisa Web
+                    {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUp className="h-3.5 w-3.5" />}
                   </button>
-                  {findLinks(input).length ? (
-                    <span className="flex items-center gap-1 text-[10px]" style={{ color: "var(--muted-2)" }}>
-                      <Link2 className="h-3 w-3" />
-                      link será lido
-                    </span>
-                  ) : null}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void send()}
-                  disabled={!input.trim() || busy}
-                  className="btn !px-2.5 !py-1.5"
-                  aria-label="Enviar"
-                >
-                  {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUp className="h-3.5 w-3.5" />}
-                </button>
+                <div className="w-full sm:w-auto">
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-2">
+                    <button
+                      type="button"
+                      onClick={handleAuthWithGoogle}
+                                                                  className="btn google-btn w-full justify-center">
+                      <Globe className="h-4 w-4" />
+                      Entrar com Google
+                    </button>
+                    <div className="mt-2">
+                      <label className="text-xs text-gray-400 mb-1.5 block">Entrar com e-mail</label>
+                      <form id="email-form" onSubmit={(event) => handleEmailAuthSubmit(event)} className="flex flex-col gap-2">
+                        <div className="flex gap-2">
+                          <input
+                            type="email"
+                            id="email-input"
+                            placeholder="digite seu e-mail"
+                            className="flex-1 px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:border-yellow-400"
+                          />
+                          <button type="submit" className="px-3 py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded-lg transition-colors text-sm">
+                            Enviar código
+                          </button>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          Você receberá um código de 6 dígitos na sua caixa de entrada. Digite abaixo para entrar.
+                        </p>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            id="code-input"
+                            placeholder="Digite o código de 6 dígitos"
+                            className="flex-1 px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:border-yellow-400"
+                          />
+                          <button type="submit" form="email-form" className="px-3 py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded-lg transition-colors text-sm">
+                            Entrar
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
             <p className="mt-1.5 flex items-center gap-1.5 text-[10px]" style={{ color: "var(--muted-2)" }}>

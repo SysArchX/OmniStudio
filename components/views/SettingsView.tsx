@@ -342,7 +342,7 @@ export default function SettingsView() {
                     id="supabase-url"
                     value={settings.supabase.url}
                     onChange={(event) => updateSupabase({ url: event.target.value })}
-                    placeholder="https://xxxx.supabase.co"
+                    placeholder="https://seu-projeto.supabase.co"
                     className="input mono mt-1 !text-[11px]"
                     spellCheck={false}
                   />
