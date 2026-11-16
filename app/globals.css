@@ -18,9 +18,9 @@
   --text: #e8e8ec;
   --muted: #8d8d96;
   --muted-2: #64646d;
-  --accent: #c6f24e;
+  --accent: #e4e4e7;
   --accent-ink: #0a0a0a;
-  --accent-soft: rgba(198, 242, 78, 0.12);
+  --accent-soft: rgba(228, 228, 231, 0.14);
   --glass: rgba(12, 12, 15, 0.72);
 }
 
@@ -97,6 +97,7 @@ body {
 
 body {
   background: var(--bg);
+  overflow-x: hidden;
   color: var(--text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;

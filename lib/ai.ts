@@ -8,6 +8,8 @@ export interface BrainMessage {
 export interface BrainConfig {
   keys: ApiKeys;
   fallback: boolean;
+  /** Provedor escolhido no compositor; os demais entram como fallback. */
+  preferred?: ProviderId;
 }
 
 export interface BrainResult {
@@ -180,7 +182,11 @@ export async function runBrain(messages: BrainMessage[], config: BrainConfig): P
   const attempts: Array<{ provider: ProviderId; ok: boolean; detail?: string }> = [];
   const lastUser = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
 
-  for (const provider of PROVIDER_ORDER) {
+  const order = config.preferred
+    ? [config.preferred, ...PROVIDER_ORDER.filter((item) => item !== config.preferred)]
+    : PROVIDER_ORDER;
+
+  for (const provider of order) {
     const key = config.keys[provider]?.trim();
     if (!key) continue;
     try {

@@ -14,6 +14,8 @@ import {
   XCircle,
 } from "lucide-react";
 import { useSettings } from "@/lib/settings-store";
+import { useWorkspace } from "@/lib/workspace-store";
+import { COMPOSIO_DASHBOARD, COMPOSIO_TOOLKITS, getComposioKey, listConnectedToolkits, type ComposioToolkitStatus } from "@/lib/composio";
 import type { PlatformInfo } from "@/lib/platform";
 import { commandAllowed } from "@/lib/platform";
 import {
@@ -39,6 +41,10 @@ export default function AgentView({ platform }: { platform: PlatformInfo }) {
   const [root, setRoot] = useState<string>("");
   const [running, setRunning] = useState(false);
   const [answer, setAnswer] = useState<string | null>(null);
+  const [toolkits, setToolkits] = useState<ComposioToolkitStatus[]>(
+    COMPOSIO_TOOLKITS.map((toolkit) => ({ ...toolkit, connected: false })),
+  );
+  const { registerAgent } = useWorkspace();
   const cancelRef = useRef(false);
   const logEnd = useRef<HTMLDivElement | null>(null);
 
@@ -58,6 +64,16 @@ export default function AgentView({ platform }: { platform: PlatformInfo }) {
   useEffect(() => {
     setRoot(currentWorkspaceName() ?? (native ? "máquina local" : ""));
   }, [native]);
+
+  useEffect(() => {
+    if (!getComposioKey()) return;
+    void listConnectedToolkits().then(setToolkits);
+  }, []);
+
+  useEffect(() => {
+    registerAgent({ steps, logs, tree, root, running });
+    return () => registerAgent(null);
+  }, [steps, logs, tree, root, running, registerAgent]);
 
   useEffect(() => {
     logEnd.current?.scrollIntoView({ block: "end" });
@@ -200,6 +216,38 @@ export default function AgentView({ platform }: { platform: PlatformInfo }) {
               }}
             />
           </label>
+        </div>
+
+        <div className="mb-3">
+          <div className="mb-1.5 flex items-center justify-between">
+            <p className="text-[10px] font-medium uppercase tracking-wide" style={{ color: "var(--muted-2)" }}>
+              Composio
+            </p>
+            <a href={COMPOSIO_DASHBOARD} target="_blank" rel="noreferrer" className="text-[10px] underline decoration-dotted" style={{ color: "var(--muted-2)" }}>
+              conectar
+            </a>
+          </div>
+          <div className="space-y-1">
+            {toolkits.map((toolkit) => (
+              <div key={toolkit.slug} className="flex items-center gap-2 rounded-lg border px-2 py-1.5" style={{ borderColor: "var(--border)" }}>
+                <span
+                  className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ background: toolkit.connected ? "#4ade80" : "var(--border-strong)" }}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[11.5px] font-medium">{toolkit.label}</span>
+                  <span className="block truncate text-[10px]" style={{ color: "var(--muted-2)" }}>
+                    {toolkit.connected ? "conectado" : toolkit.description}
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+          {!getComposioKey() ? (
+            <p className="mt-1 text-[10px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+              Informe a chave em Configurações para ativar.
+            </p>
+          ) : null}
         </div>
 
         <div className="min-h-0 flex-1">

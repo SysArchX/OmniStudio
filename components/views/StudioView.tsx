@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Loader2, Music2, Pause, Play, Plus, Sparkles, Volume2 } from "lucide-react";
 import { useSettings } from "@/lib/settings-store";
+import { useWorkspace } from "@/lib/workspace-store";
 import { generateVideoScript, ANIMATIONS, ENVIRONMENTS } from "@/lib/script-gen";
 import { buildTimeline, composeFrame, downloadVideo, recordVideo, type RecordResult } from "@/lib/video-render";
 import { VIDEO_H, VIDEO_W } from "@/lib/scene2d";
@@ -20,8 +21,9 @@ const EMPTY_PROJECT: StudioProject = {
   sfxEnabled: true,
 };
 
-export default function StudioView() {
+export default function StudioView({ showCanvas = true }: { showCanvas?: boolean }) {
   const { settings } = useSettings();
+  const { studioCanvas, registerStudio } = useWorkspace();
   const [topic, setTopic] = useState("como sobreviver a areia movediça");
   const [project, setProject] = useState<StudioProject>(EMPTY_PROJECT);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -33,7 +35,7 @@ export default function StudioView() {
   const [audio, setAudio] = useState<{ url: string; name: string } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasRef = studioCanvas;
   const timeRef = useRef(0);
   const sceneRef = useRef(-1);
   const rafRef = useRef(0);
@@ -205,9 +207,20 @@ export default function StudioView() {
     }
   };
 
+  useEffect(() => {
+    registerStudio({
+      testVoice,
+      exportVideo: () => void exportVideo(),
+      hasScenes: project.scenes.length > 0,
+      title: project.title,
+      duration: timeline.duration,
+    });
+    return () => registerStudio(null);
+  }, [project, timeline.duration, registerStudio]);
+
   return (
-    <div className="flex h-full min-h-0">
-      <aside className="min-h-0 w-[330px] shrink-0 overflow-y-auto border-r px-4 py-4" style={{ borderColor: "var(--border)" }}>
+    <div className="flex h-full min-h-0 flex-col lg:flex-row">
+      <aside className="min-h-0 w-full shrink-0 overflow-y-auto border-b px-4 py-4 lg:w-[330px] lg:border-b-0 lg:border-r" style={{ borderColor: "var(--border)" }}>
         <p className="label">Tema do vídeo</p>
         <input
           value={topic}
@@ -355,12 +368,18 @@ export default function StudioView() {
       </aside>
 
       <section className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4">
-        <div
-          className="relative overflow-hidden rounded-xl border"
-          style={{ borderColor: "var(--border)", width: 288, height: Math.round((288 * VIDEO_H) / VIDEO_W) }}
-        >
-          <canvas ref={canvasRef} width={VIDEO_W} height={VIDEO_H} className="h-full w-full" />
-        </div>
+        {showCanvas ? (
+          <div
+            className="relative overflow-hidden rounded-xl border"
+            style={{ borderColor: "var(--border)", width: "min(288px, 70vw)", aspectRatio: `${VIDEO_W} / ${VIDEO_H}` }}
+          >
+            <canvas ref={canvasRef} width={VIDEO_W} height={VIDEO_H} className="h-full w-full" />
+          </div>
+        ) : (
+          <p className="max-w-[320px] text-center text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+            Prévia aberta no inspetor ao lado.
+          </p>
+        )}
 
         <div className="flex items-center gap-2">
           <button type="button" onClick={togglePlay} disabled={!project.scenes.length} className="btn !px-3">

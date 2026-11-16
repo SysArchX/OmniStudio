@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { ACCENTS, useSettings } from "@/lib/settings-store";
 import { useAuth } from "@/lib/auth-store";
+import { getComposioKey, setComposioKey } from "@/lib/composio";
 import {
   providerKeyHelp,
   PROVIDER_LABEL,
@@ -86,7 +87,7 @@ function SessionRow({ session }: { session: ReturnType<typeof useAuth>["session"
 
 export default function SettingsView() {
   const { settings, update, updateKeys, reset } = useSettings();
-  const { session, configured, signIn, signOut, continueAsGuest } = useAuth();
+  const { session, signIn, signOut, openAuth } = useAuth();
   const [tab, setTab] = useState<TabId>("keys");
   const [reveal, setReveal] = useState<Record<string, boolean>>({});
   const [status, setStatus] = useState<Record<ProviderId, ProviderTestResult & { testing?: boolean }>>({
@@ -96,6 +97,9 @@ export default function SettingsView() {
   });
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [sync, setSync] = useState<string | null>(null);
+  const [composioKey, setComposioKeyState] = useState("");
+
+  useEffect(() => setComposioKeyState(getComposioKey()), []);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => setVoices(ptBrVoices()), []);
@@ -417,8 +421,7 @@ export default function SettingsView() {
                     <div className="grid gap-1">
                       <button
                         type="button"
-                        onClick={signIn}
-                        disabled={!configured}
+                        onClick={() => void signIn()}
                         className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-[11px] font-medium transition-colors hover:bg-[var(--surface-2)]"
                         style={{ color: "var(--text)" }}
                       >
@@ -427,23 +430,12 @@ export default function SettingsView() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          window.location.href = "/";
-                        }}
+                        onClick={openAuth}
                         className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-[11px] font-medium transition-colors hover:bg-[var(--surface-2)]"
                         style={{ color: "var(--text)" }}
                       >
                         <Mail className="h-3.5 w-3.5" />
                         Entrar com e-mail
-                      </button>
-                      <button
-                        type="button"
-                        onClick={continueAsGuest}
-                        className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-[11px] font-medium transition-colors hover:bg-[var(--surface-2)]"
-                        style={{ color: "var(--text)" }}
-                      >
-                        <LogIn className="h-3.5 w-3.5" />
-                        Continuar sem login
                       </button>
                     </div>
                   </>
@@ -454,6 +446,26 @@ export default function SettingsView() {
                     {sync}
                   </p>
                 ) : null}
+              </div>
+
+              <div className="panel space-y-2 p-3.5">
+                <p className="text-[12px] font-medium">Composio</p>
+                <p className="text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+                  Chave do projeto para o Modo Agente usar GitHub, Gmail, Google Calendar e Tavily. Fica só neste dispositivo.
+                </p>
+                <input
+                  type="password"
+                  value={composioKey}
+                  onChange={(event) => {
+                    setComposioKeyState(event.target.value);
+                    setComposioKey(event.target.value);
+                  }}
+                  placeholder="ck_..."
+                  className="input mono !text-[11px]"
+                  spellCheck={false}
+                  autoComplete="off"
+                  aria-label="Chave Composio"
+                />
               </div>
 
               <div className="panel space-y-2 p-3.5">
