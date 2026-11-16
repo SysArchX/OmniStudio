@@ -86,6 +86,13 @@ jobs:
         run: |
           npx cap add android || npx cap sync android
 
+      - name: Configurar keystore para build de release
+        run: |
+          echo "keystore.storeFile=${{ secrets.ANDROID_KEYSTORE_FILE }}" >> android/local.properties
+          echo "keystore.storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/local.properties
+          echo "keystore.keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/local.properties
+          echo "keystore.keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/local.properties
+
       - name: Compilar APK
         working-directory: android
         run: |
