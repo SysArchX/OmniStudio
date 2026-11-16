@@ -78,7 +78,7 @@ jobs:
       - name: Empacotar pacote Arch
         run: |
           sudo apt-get update
-          sudo apt-get install -y fakeroot dpkg-dev rpm
+          sudo apt-get install -y fakeroot dpkg-dev rpm libarchive-tools
           npx electron-builder --linux pacman --x64 --publish never
       - name: Publicar artefato
         run: |
