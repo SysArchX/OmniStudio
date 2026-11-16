@@ -111,6 +111,7 @@ jobs:
         run: |
           npx cap add android || true
           npx cap sync android
+          python3 scripts/inject-url-scheme.py android
       - name: Assinar com chave gerada no job
         run: |
           keytool -genkeypair -v -keystore release.keystore -alias omnistudio \
@@ -165,6 +166,7 @@ jobs:
         run: |
           npx cap add ios
           npx cap sync ios
+          python3 scripts/inject-url-scheme.py ios
       - name: Compilar sem assinatura
         env:
           CODE_SIGNING_ALLOWED: "NO"

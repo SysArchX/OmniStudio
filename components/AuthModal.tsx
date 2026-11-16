@@ -1,15 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { KeyRound, Loader2, Mail } from "lucide-react";
+import { KeyRound, Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth-store";
 import { useSettings } from "@/lib/settings-store";
-import {
-  sendEmailOtp,
-  signInWithPassword,
-  signUpWithPassword,
-  verifyEmailOtp,
-} from "@/lib/auth";
+import { isNativeShell, signInWithPassword, signUpWithPassword } from "@/lib/auth";
 import { Modal } from "./ui";
 
 const GoogleIcon = (
@@ -33,7 +28,7 @@ const GoogleIcon = (
   </svg>
 );
 
-type Step = "start" | "otp-email" | "otp-verify" | "password";
+type Step = "start" | "password";
 
 export default function AuthModal() {
   const { authOpen, closeAuth, signIn, adoptSession } = useAuth();
@@ -42,17 +37,17 @@ export default function AuthModal() {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [waiting, setWaiting] = useState(false);
 
   useEffect(() => {
     if (!authOpen) {
       setStep("start");
       setError("");
       setBusy(false);
+      setWaiting(false);
       setPassword("");
-      setCode("");
     }
   }, [authOpen]);
 
@@ -61,43 +56,15 @@ export default function AuthModal() {
     setBusy(true);
     try {
       await signIn();
+      if (isNativeShell()) {
+        // No app nativo a folha embutida assume; o modal espera o deep link.
+        setWaiting(true);
+      }
     } catch (err) {
-      setBusy(false);
       setError(err instanceof Error ? err.message : "Não foi possível abrir o Google.");
+    } finally {
+      setBusy(false);
     }
-  };
-
-  const requestCode = async () => {
-    if (!email.trim()) {
-      setError("Informe seu e-mail.");
-      return;
-    }
-    setError("");
-    setBusy(true);
-    const result = await sendEmailOtp(email.trim(), settings.supabase);
-    setBusy(false);
-    if (!result.ok) {
-      setError(result.message);
-      return;
-    }
-    setStep("otp-verify");
-  };
-
-  const confirmCode = async () => {
-    if (!code.trim()) {
-      setError("Digite o código de 6 dígitos.");
-      return;
-    }
-    setError("");
-    setBusy(true);
-    const result = await verifyEmailOtp(email.trim(), code.trim(), settings.supabase);
-    setBusy(false);
-    if (!result.ok || !result.session) {
-      setError(result.message);
-      return;
-    }
-    adoptSession(result.session);
-    closeAuth();
   };
 
   const submitPassword = async () => {
@@ -125,7 +92,7 @@ export default function AuthModal() {
       open={authOpen}
       onClose={closeAuth}
       title="Entrar na sua conta"
-      description="A conta sincroniza configurações e conversas. O app funciona sem ela."
+      description="A conta sincroniza chaves, configurações e conversas entre dispositivos."
       width={400}
     >
       <div className="space-y-2.5">
@@ -144,7 +111,7 @@ export default function AuthModal() {
             <button
               type="button"
               onClick={() => void google()}
-              disabled={busy}
+              disabled={busy || waiting}
               className="flex w-full items-center justify-center gap-2.5 rounded-lg border px-3 py-2.5 text-[12.5px] font-medium transition-colors disabled:opacity-60"
               style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text)" }}
             >
@@ -170,87 +137,26 @@ export default function AuthModal() {
               type="button"
               onClick={() => {
                 setError("");
-                setStep("otp-email");
+                setMode("signup");
+                setStep("password");
               }}
               className="flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-[12.5px] font-medium transition-colors"
               style={{ borderColor: "var(--border)", color: "var(--muted)" }}
             >
-              <Mail className="h-3.5 w-3.5" />
-              Receber código por e-mail
+              Criar conta com e-mail e senha
             </button>
-            <p className="text-center text-[10px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
-              O código depende de SMTP configurado no Supabase. E-mail e senha e Google não.
-            </p>
+
+            {waiting ? (
+              <p className="flex items-center justify-center gap-1.5 text-center text-[10.5px]" style={{ color: "var(--muted)" }}>
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Conclua o login na janela do Google para voltar ao app.
+              </p>
+            ) : (
+              <p className="text-center text-[10px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+                Não enviamos código por e-mail: o app usa Google ou e-mail com senha.
+              </p>
+            )}
           </>
-        ) : null}
-
-        {step === "otp-email" ? (
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              void requestCode();
-            }}
-            className="space-y-2.5"
-          >
-            <label className="block text-[11.5px]" style={{ color: "var(--muted)" }}>
-              E-mail
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="voce@exemplo.com"
-                className="input mt-1.5 !text-base sm:!text-[13px]"
-                autoFocus
-                autoComplete="email"
-                required
-              />
-            </label>
-            <button type="submit" disabled={busy} className="btn btn-primary w-full disabled:opacity-60">
-              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              Enviar código de 6 dígitos
-            </button>
-            <button type="button" onClick={() => setStep("start")} className="btn btn-ghost w-full !text-[11px]">
-              Voltar
-            </button>
-          </form>
-        ) : null}
-
-        {step === "otp-verify" ? (
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              void confirmCode();
-            }}
-            className="space-y-2.5"
-          >
-            <p className="text-[11.5px] leading-relaxed" style={{ color: "var(--muted)" }}>
-              Enviamos um código para <span style={{ color: "var(--text)" }}>{email}</span>.
-            </p>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              placeholder="000000"
-              maxLength={6}
-              className="input mono !text-base tracking-[0.35em] sm:!text-[15px]"
-              autoFocus
-              autoComplete="one-time-code"
-              required
-            />
-            <button type="submit" disabled={busy} className="btn btn-primary w-full disabled:opacity-60">
-              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              Confirmar e entrar
-            </button>
-            <div className="flex items-center justify-between text-[10.5px]" style={{ color: "var(--muted-2)" }}>
-              <button type="button" onClick={() => void requestCode()} className="underline decoration-dotted">
-                Reenviar código
-              </button>
-              <button type="button" onClick={() => setStep("otp-email")} className="underline decoration-dotted">
-                Trocar e-mail
-              </button>
-            </div>
-          </form>
         ) : null}
 
         {step === "password" ? (
@@ -303,7 +209,7 @@ export default function AuthModal() {
                 {mode === "signin" ? "Criar uma conta" : "Já tenho conta"}
               </button>
               <button type="button" onClick={() => setStep("start")} className="underline decoration-dotted">
-                Outras opções
+                Voltar
               </button>
             </div>
           </form>

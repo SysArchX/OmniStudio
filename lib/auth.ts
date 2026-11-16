@@ -1,4 +1,7 @@
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
+import { App as CapacitorApp } from "@capacitor/app";
+import { Browser } from "@capacitor/browser";
+import { Capacitor } from "@capacitor/core";
 import type { AuthSession, AuthUser, SupabaseConfig } from "./types";
 
 export const NATIVE_CALLBACK = "omnistudio://auth/callback";
@@ -86,17 +89,21 @@ export function toAuthSession(session: Session | null): AuthSession | null {
   };
 }
 
-function capacitor(): {
-  isNativePlatform?: () => boolean;
-  Plugins?: { App?: { addListener: (event: string, handler: (data: { url: string }) => void) => { remove?: () => void } | void } };
-} | undefined {
-  return (window as unknown as { Capacitor?: never }).Capacitor as never;
+/** App empacotado pelo Capacitor (Android/iOS). */
+export function isCapacitorNative() {
+  if (typeof window === "undefined") return false;
+  try {
+    return Boolean(Capacitor.isNativePlatform?.());
+  } catch {
+    return false;
+  }
 }
 
+/** Qualquer casca nativa: Capacitor mobile ou Electron desktop. */
 export function isNativeShell() {
   if (typeof window === "undefined") return false;
   if ((window as unknown as { omniNative?: unknown }).omniNative) return true;
-  return Boolean(capacitor()?.isNativePlatform?.());
+  return isCapacitorNative();
 }
 
 /** URI de retorno registrada no Supabase: esquema do app no nativo, origem no navegador. */
@@ -106,9 +113,46 @@ export function redirectUri() {
   return `${window.location.origin}/`;
 }
 
-/** OAuth do Google pelo SDK oficial. Nunca usa localhost fixo. */
+/**
+ * OAuth do Google.
+ * - Capacitor (Android/iOS): pede a URL ao Supabase e abre numa folha nativa.
+ * - Electron: abre no navegador do sistema; o app captura omnistudio:// depois.
+ * - Web/PWA: redireciona na própria aba, com redirectTo na origem atual.
+ * Nunca usa localhost fixo.
+ */
 export async function signInWithGoogle(config?: SupabaseConfig | null) {
   const supabase = getSupabase(config);
+
+  if (isCapacitorNative()) {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: NATIVE_CALLBACK,
+        skipBrowserRedirect: true,
+        queryParams: { prompt: "select_account" },
+      },
+    });
+    if (error) throw new Error(error.message);
+    if (!data?.url) throw new Error("O Supabase não devolveu a URL de login.");
+    await Browser.open({ url: data.url, presentationStyle: "popover" });
+    return;
+  }
+
+  if (isNativeShell()) {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: NATIVE_CALLBACK,
+        skipBrowserRedirect: true,
+        queryParams: { prompt: "select_account" },
+      },
+    });
+    if (error) throw new Error(error.message);
+    if (!data?.url) throw new Error("O Supabase não devolveu a URL de login.");
+    window.open(data.url, "_blank", "noreferrer");
+    return;
+  }
+
   const { error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
@@ -119,29 +163,87 @@ export async function signInWithGoogle(config?: SupabaseConfig | null) {
   if (error) throw new Error(error.message);
 }
 
-/** Traduz os erros de e-mail do Supabase para algo acionável. */
-function otpError(message: string): string {
-  const text = message.toLowerCase();
-  if (text.includes("rate limit") || text.includes("over_email_send")) {
-    return "Limite de envios atingido: o SMTP padrão do Supabase libera pouquíssimos e-mails por hora. Configure um SMTP próprio (Project Settings → Authentication → SMTP Settings) para enviar de verdade.";
+/**
+ * Conclui o retorno do OAuth de dentro do app.
+ * Aceita `omnistudio://auth/callback#access_token=...` e também `?code=...` (PKCE).
+ */
+export async function completeOAuthCallback(
+  url: string,
+  config?: SupabaseConfig | null,
+): Promise<AuthSession> {
+  const supabase = getSupabase(config);
+  const parsed = new URL(url.replace(/^omnistudio:\/\//, "https://omnistudio/"));
+  const hash = new URLSearchParams(parsed.hash.replace(/^#/, ""));
+  const accessToken = hash.get("access_token");
+  const refreshToken = hash.get("refresh_token");
+  const code = parsed.searchParams.get("code") ?? hash.get("code");
+
+  if (accessToken) {
+    const { data, error } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken ?? "",
+    });
+    if (error) throw new Error(error.message);
+    const session = toAuthSession(data.session);
+    if (!session) throw new Error("Sessão vazia no retorno do Google.");
+    saveSession(session);
+    return session;
   }
-  if (text.includes("not authorized") || text.includes("email address not authorized")) {
-    return "O remetente padrão do Supabase só entrega para e-mails da equipe do projeto. Configure um SMTP próprio para enviar a qualquer endereço.";
+
+  if (code) {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) throw new Error(error.message);
+    const session = toAuthSession(data.session);
+    if (!session) throw new Error("Sessão vazia no retorno do Google.");
+    saveSession(session);
+    return session;
   }
-  return message;
+
+  throw new Error("O retorno do Google não trouxe tokens nem código.");
 }
 
-export async function sendEmailOtp(
-  email: string,
-  config?: SupabaseConfig | null,
-): Promise<{ ok: boolean; message: string }> {
-  const supabase = getSupabase(config);
-  const { error } = await supabase.auth.signInWithOtp({
-    email: email.trim(),
-    options: { shouldCreateUser: true, emailRedirectTo: redirectUri() },
+/**
+ * Escuta o deep link `omnistudio://auth/callback` no app nativo:
+ * fecha a folha do navegador embutido e entra na conta.
+ * Retorna a função de limpeza.
+ */
+export function registerNativeAuthListener(
+  config: SupabaseConfig | null | undefined,
+  onSession: (session: AuthSession) => void,
+  onError?: (message: string) => void,
+) {
+  if (typeof window === "undefined" || !isCapacitorNative()) return () => undefined;
+  let removed = false;
+  const handle = async (url: string) => {
+    if (!url.startsWith(NATIVE_CALLBACK)) return;
+    try {
+      await Browser.close();
+    } catch {
+      /* a folha já estava fechada */
+    }
+    try {
+      onSession(await completeOAuthCallback(url, config));
+    } catch (error) {
+      onError?.(error instanceof Error ? error.message : "Falha ao concluir o login.");
+    }
+  };
+
+  const listener = CapacitorApp.addListener("appUrlOpen", (event: { url?: string }) => {
+    if (event?.url) void handle(event.url);
   });
-  if (error) return { ok: false, message: otpError(error.message) };
-  return { ok: true, message: "Código de 6 dígitos enviado para o e-mail." };
+
+  void CapacitorApp.getLaunchUrl()
+    .then((result) => {
+      if (result?.url) return handle(result.url);
+      return undefined;
+    })
+    .catch(() => undefined);
+
+  return () => {
+    if (removed) return;
+    removed = true;
+    void listener.then((handleRef) => handleRef.remove()).catch(() => undefined);
+  };
 }
 
 function passwordError(message: string): string {
@@ -188,24 +290,6 @@ export async function signUpWithPassword(
   if (!session) return { ok: false, message: "Conta criada. Desative \"Confirm email\" no Supabase para entrar direto, ou confirme pelo e-mail." };
   saveSession(session);
   return { ok: true, session, message: "Conta criada e sessão iniciada." };
-}
-
-export async function verifyEmailOtp(
-  email: string,
-  token: string,
-  config?: SupabaseConfig | null,
-): Promise<{ ok: boolean; session?: AuthSession; message: string }> {
-  const supabase = getSupabase(config);
-  const { data, error } = await supabase.auth.verifyOtp({
-    email: email.trim(),
-    token: token.trim(),
-    type: "email",
-  });
-  if (error) return { ok: false, message: otpError(error.message) };
-  const session = toAuthSession(data.session);
-  if (!session) return { ok: false, message: "Não foi possível abrir a sessão." };
-  saveSession(session);
-  return { ok: true, session, message: "Login bem-sucedido!" };
 }
 
 export async function signOut(config?: SupabaseConfig | null, _session?: AuthSession | null) {

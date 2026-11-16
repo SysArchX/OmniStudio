@@ -14,7 +14,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
-const VERSION = "1.5.0";
+const VERSION = "1.5.1";
 const SUPABASE_URL = process.env.OMNISTUDIO_SUPABASE_URL || "https://xwbpajtyqhzkxvoxnsyp.supabase.co";
 const SUPABASE_ANON_KEY =
   process.env.OMNISTUDIO_SUPABASE_ANON_KEY ||

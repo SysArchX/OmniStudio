@@ -1,7 +1,16 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { attachAuthListener, getSupabase, signInWithGoogle, signOut as revokeSession, toAuthSession } from "./auth";
+import {
+  attachAuthListener,
+  completeOAuthCallback,
+  getSupabase,
+  isCapacitorNative,
+  registerNativeAuthListener,
+  signInWithGoogle,
+  signOut as revokeSession,
+  toAuthSession,
+} from "./auth";
 import { useSettings } from "./settings-store";
 import type { AuthSession } from "./types";
 
@@ -46,6 +55,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [config]);
 
   useEffect(() => attachAuthListener(config, setSession), [config]);
+
+  // Android/iOS: o retorno do Google chega por deep link numa folha embutida.
+  useEffect(() => {
+    if (!isCapacitorNative()) return undefined;
+    return registerNativeAuthListener(
+      config,
+      (next) => {
+        setSession(next);
+        setAuthOpen(false);
+      },
+      () => undefined,
+    );
+  }, [config]);
+
+  // Electron: o protocolo omnistudio:// chega pelo bridge do preload.
+  useEffect(() => {
+    const bridge = (window as unknown as { omniNative?: { onAuthCallback?: (cb: (url: string) => void) => () => void } })
+      .omniNative;
+    if (!bridge?.onAuthCallback) return undefined;
+    return bridge.onAuthCallback((url) => {
+      void completeOAuthCallback(url, config)
+        .then((next) => {
+          setSession(next);
+          setAuthOpen(false);
+        })
+        .catch(() => undefined);
+    });
+  }, [config]);
 
   const signIn = useCallback(async () => {
     await signInWithGoogle(config);
