@@ -77,6 +77,21 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
 
+  // Aplica credenciais padrão se localStorage estiver vazio ou sem config supabase
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      const hasSupabaseConfig = raw ? JSON.parse(raw)?.supabase?.url?.trim() && JSON.parse(raw)?.supabase?.anonKey?.trim() : false;
+      if (!raw || !hasSupabaseConfig) {
+        // Mantém credenciais padrão quando não há salvamento ou config inválida
+        setSettings(DEFAULT_SETTINGS);
+      }
+    } catch {
+      /* armazenamento indisponível */
+      setSettings(DEFAULT_SETTINGS);
+    }
+  }, []);
+
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);

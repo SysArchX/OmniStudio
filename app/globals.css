@@ -25,7 +25,15 @@
 }
 
 @media (max-width: 768px) {
-  /* Mobile: bottom navigation */
+  /* Mobile layout: hide wide sidebar, use bottom nav */
+  .main-content {
+    margin-left: 0 !important;
+    margin-bottom: 0 !important;
+    width: 100% !important;
+  }
+  .sidebar-fixed {
+    display: none !important;
+  }
   .bottom-nav {
     position: fixed;
     bottom: env(safe-area-inset-bottom);
@@ -38,23 +46,20 @@
     padding-bottom: env(safe-area-inset-bottom);
     box-shadow: 0 -4px 12px rgba(0,0,0,0.3);
   }
-  .sidebar {
-    display: none;
+}
+
+@supports not (height: 100dvh) {
+  /* Fallback for Safari iOS: use min-height instead of 100vh */
+  .min-h-[100dvh] {
+    min-height: -webkit-fill-available;
   }
-  .main-area {
-    margin-left: 0 !important;
-    width: 100% !important;
-  }
+}
+
+@media (max-width: 768px) {
   input,
   textarea {
     font-size: 16px !important;
     -webkit-text-size-adjust: 100%;
-  }
-}
-
-@supports not (height: 100dvh) {
-  .min-h-[100dvh] {
-    min-height: -webkit-fill-available;
   }
 }
 

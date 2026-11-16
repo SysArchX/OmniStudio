@@ -33,9 +33,9 @@ jobs:
             command: npx electron-builder --linux pacman --publish never
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
@@ -62,19 +62,12 @@ jobs:
     name: Android
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-
-      - uses: android-actions/setup-android@v3
 
       - name: Instalar dependências
         run: npm ci
@@ -83,8 +76,7 @@ jobs:
         run: npm run build
 
       - name: Adicionar plataforma Android
-        run: |
-          npx cap add android || npx cap sync android
+        run: npx cap add android || npx cap sync android
 
       - name: Configurar keystore para build de release
         run: |

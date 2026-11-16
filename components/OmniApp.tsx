@@ -42,32 +42,92 @@ const VIEW_META: Record<ViewId, { title: string; subtitle: string }> = {
   credits: { title: "Créditos", subtitle: "Quem construiu e o que está por trás" },
 };
 
+// Google SVG icon (official colors)
+const GoogleIcon = (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    className="h-4 w-4"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    style={{ width: "1em", height: "1em" }}
+  >
+    <path d="M22.54 5.45a.75.75 0 0 0-1.06-.02L12 14.24l-5.62-3.08a.75.75 0 0 0-1.08.02L3 14.25l7.75 4.25a.75.75 0 0 0 1.08.02l7.74-4.25 5.22 2.86a.75.75 0 0 0 .88-.02l6.42-3.57a.75.75 0 0 0-.1-1.04zM12 3.73a8.27 8.27 0 1 0 0 16.54 8.27 8.27 0 0 0 0-16.54z" />
+  </svg>
+);
+
 function Welcome() {
-  const { configured, signIn, continueAsGuest } = useAuth();
+  const { configured, signIn, continueAsGuest, session } = useAuth();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [step, setStep] = useState<"google" | "email-otp" | "verify">("google");
+  const [otpError, setOtpError] = useState("");
+  const [otpBusy, setOtpBusy] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const message = params.get("error_description") || params.get("error");
     if (message) {
-      setError(decodeURIComponent(message.replace(/\+/g, " ")));
+      setError(decodeURIComponent(message.replace(/\\+/g, " ")));
       setBusy(false);
       window.history.replaceState(null, "", window.location.pathname);
     }
   }, []);
 
-  const start = () => {
+  const sendOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
     setError("");
-    if (!configured) {
-      setError(
-        "Nenhum projeto Supabase conectado. Abra Configurações, aba Conta e nuvem, e informe a URL e a anon key. O passo a passo está no README do repositório.",
-      );
+    setOtpError("");
+    if (!email.trim()) {
+      setOtpError("Informe seu e-mail.");
       return;
     }
-    setBusy(true);
-    signIn();
+    setOtpBusy(true);
+    if (!email.trim()) {
+      setOtpError("Informe seu e-mail.");
+      return;
+    }
+    setOtpBusy(true);
+    const result = await fetch(`${window.location.origin}/auth/v1/otp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email: email.trim(), create_user: true }),
+    });
+    const data = await result.json().catch(() => ({}));
+    setOtpBusy(false);
+    if (!result.ok) {
+      setOtpError(data.message || "Falha ao enviar código.");
+    } else {
+      setStep("verify");
+    }
+  };
+
+  const verifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (!code.trim()) {
+      setOtpError("Digite o código de 6 dígitos.");
+      return;
+    }
+    setOtpBusy(true);
+    const result = await fetch(`${window.location.origin}/auth/v1/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email.trim(), token: code.trim(), type: "email" }),
+    });
+    const data = await result.json().catch(() => ({}));
+    setOtpBusy(false);
+    if (!result.ok) {
+      setOtpError(data.message || "Código inválido.");
+    } else {
+      setStep("google");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      window.location.href = "/#/";
+    }
   };
 
   return (
@@ -87,22 +147,95 @@ function Welcome() {
         </div>
 
         <div className="space-y-3">
-          <button type="button" onClick={start} disabled={busy} className="btn w-full justify-center">
-            <LogIn className="h-4 w-4" />
-            {busy ? "Abrindo o Google..." : "Entrar com Google"}
-          </button>
+          {step === "google" && (
+            <>,
+              <button
+                type="button"
+                onClick={() => setStep("google")}
+                disabled={busy}
+                className="btn w-full justify-center flex items-center gap-2"
+              >
+                {GoogleIcon}
+                {busy ? "Abrindo o Google..." : "Entrar com Google"}
+              </button>
 
-          {error ? (
-            <div className="panel px-3 py-2 text-[11px] leading-relaxed" style={{ color: "#fca5a5" }}>
-              {error}
-            </div>
-          ) : null}
+              {error ? (
+                <div className="panel px-3 py-2 text-[11px] leading-relaxed" style={{ color: "#fca5a5" }}>
+                  {error}
+                </div>
+              ) : null}
 
-          {!configured && !error ? (
-            <p className="text-center text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
-              O Google entra por um projeto Supabase seu. Configuração em Configurações, aba Conta e nuvem.
-            </p>
-          ) : null}
+              {!configured && !error ? (
+                <p className="text-center text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+                  O Google entra por um projeto Supabase seu. Configuração em Configurações, aba Conta e nuvem.
+                </p>
+              ) : null}
+
+              <div className="pt-1 text-center">
+                <button
+                  type="button"
+                  onClick={() => setStep("email-otp")}
+                  className="text-[10.5px] underline decoration-dotted"
+                  style={{ color: "var(--muted-2)" }}
+                >
+                  Entrar com e-mail
+                </button>
+              </div>
+            </>
+          )}
+
+          {step === "email-otp" && (
+            <form id="email-form" onSubmit={sendOtp} className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-400 mb-1.5 block">E-mail</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="digite seu e-mail"
+                  className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-base placeholder-gray-500 focus:outline-none focus:border-yellow-400"
+                  autoFocus
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={otpBusy}
+                className="px-3 py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded-lg transition-colors text-sm w-full"
+              >
+                {otpBusy ? "Enviando..." : "Enviar Código de 6 Dígitos"}
+              </button>
+              {otpError ? (
+                <p className="text-xs text-red-400">{otpError}</p>
+              ) : null}
+            </form>
+          )}
+
+          {step === "verify" && (
+            <form id="verify-form" onSubmit={verifyOtp} className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-400 mb-1.5 block">Código de 6 dígitos</label>
+                <input
+                  type="text"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="Digite o código de 6 dígitos recebido no email"
+                  maxLength={6}
+                  className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-base placeholder-gray-500 focus:outline-none focus:border-yellow-400"
+                  autoFocus
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={otpBusy}
+                className="px-3 py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded-lg transition-colors text-sm w-full"
+              >
+                {otpBusy ? "Verificando..." : "Confirmar Código e Entrar"}
+              </button>
+              {otpError ? (
+                <p className="text-xs text-red-400">{otpError}</p>
+              ) : null}
+            </form>
+          )}
 
           <div className="pt-1 text-center">
             <button
@@ -140,17 +273,20 @@ function Shell() {
   }, []);
 
   if (!ready) {
-    return <div className="h-[100dvh]" style={{ background: "var(--bg)" }} />;
+    return <div className="h-[100dvh] w-full overflow-hidden" style={{ background: "var(--bg)" }} />;
   }
 
   if (!session && !guest) return <Welcome />;
 
   const configured = PROVIDER_ORDER.filter((provider) => settings.keys[provider]?.trim()).length;
 
+  // Detect platform for mobile layout
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+
   return (
-    <div className="flex h-[100dvh] w-full overflow-hidden" style={{ background: "var(--bg)" }}>
+    <div className="h-[100dvh] w-full overflow-hidden" style={{ background: "var(--bg)" }}>
       <aside
-        className="flex w-[196px] shrink-0 flex-col border-r px-2.5 py-3"
+        className={isMobile ? "hidden md:flex" : "flex w-[196px] shrink-0 flex-col border-r px-2.5 py-3"}
         style={{ borderColor: "var(--border)", background: "var(--surface)" }}
       >
         <div className="mb-4 flex items-center gap-2.5 px-1.5">
@@ -163,7 +299,7 @@ function Shell() {
           <span className="truncate text-[13px] font-semibold tracking-[-0.01em]">OmniStudio</span>
         </div>
 
-        <nav className="flex flex-1 flex-col gap-0.5">
+        <nav className={isMobile ? "flex md:hidden flex-col" : "flex flex-1 flex-col gap-0.5"}>
           {NAV.map((item) => {
             const Icon = item.icon;
             const active = view === item.id;
@@ -177,11 +313,11 @@ function Shell() {
                   "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12.5px] transition-colors",
                   active ? "font-medium" : "hover:bg-[var(--surface-2)]",
                 )}
-                style={
+                style={{
                   active
                     ? { background: "var(--surface-2)", color: "var(--text)" }
-                    : { color: "var(--muted)" }
-                }
+                    : { color: "var(--muted)" },
+                }}
               >
                 <Icon className="h-4 w-4 shrink-0" strokeWidth={1.7} />
                 <span className="truncate">{item.label}</span>
@@ -190,89 +326,120 @@ function Shell() {
           })}
         </nav>
 
-        <div className="mt-3 border-t px-1.5 pt-3" style={{ borderColor: "var(--border)" }}>
-          <div className="flex items-center gap-2">
-            {session?.user.avatar ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={session.user.avatar}
-                alt=""
-                className="h-6 w-6 rounded-full"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <div
-                className="grid h-6 w-6 place-items-center rounded-full text-[10px] font-semibold"
-                style={{ background: "var(--surface-3)", color: "var(--muted)" }}
-              >
-                {session ? session.user.name.slice(0, 1).toUpperCase() : "OS"}
-              </div>
-            )}
-            <div className="min-w-0">
-              <p className="truncate text-[11px] font-medium">{session ? session.user.name : "Modo Local"}</p>
-              <p className="truncate text-[10px]" style={{ color: "var(--muted-2)" }}>
-                {session ? session.user.email : "sem conta conectada"}
-              </p>
-            </div>
-          </div>
-          <p className="mt-2.5 text-[10px]" style={{ color: "var(--muted-2)" }}>
-            OmniStudio v{APP_VERSION} · {OWNER}
-          </p>
-        </div>
-      </aside>
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header
-          className="glass z-30 flex h-[54px] shrink-0 items-center justify-between gap-4 border-b px-5"
-          style={{ borderColor: "var(--border)" }}
-        >
-          <div className="min-w-0">
-            <h1 className="truncate text-[13px] font-semibold tracking-[-0.01em]">{VIEW_META[view].title}</h1>
-            <p className="truncate text-[11px]" style={{ color: "var(--muted)" }}>
-              {VIEW_META[view].subtitle}
+        {isMobile ? (
+          <div className="mt-8 border-t px-1.5 pt-3" style={{ borderColor: "var(--border)" }}>
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--surface-2)]"
+              style={{ color: "var(--text)" }}
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              <span className="text-[11px] font-medium">Sair da Conta</span>
+            </button>
+            <p className="mt-2.5 text-[10px]" style={{ color: "var(--muted-2)" }}>
+              OmniStudio v{APP_VERSION} · {OWNER}
             </p>
           </div>
-
-          <div className="flex items-center gap-2">
-            <div
-              className="hidden items-center gap-2 rounded-full border px-2.5 py-1 text-[10px] sm:flex"
-              style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--muted)" }}
-              title={configured ? `${configured} provedor(es) com chave` : "Nenhuma chave: cérebro local"}
+        ) : (
+          <div className="mt-3 border-t px-1.5 pt-3" style={{ borderColor: "var(--border)" }}>
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--surface-2)]"
+              style={{ color: "var(--text)" }}
             >
-              {PROVIDER_ORDER.map((provider) => (
-                <span key={provider} className="flex items-center gap-1">
-                  <span
-                    className="inline-block h-1.5 w-1.5 rounded-full"
-                    style={{ background: settings.keys[provider]?.trim() ? "#4ade80" : "#3f3f46" }}
-                  />
-                  {PROVIDER_LABEL[provider]}
-                </span>
-              ))}
-            </div>
-
-            <div
-              className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px]"
-              style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--muted)" }}
-            >
-              {platform.kind === "desktop" ? (
-                <Monitor className="h-3 w-3" />
-              ) : platform.kind === "android" ? (
-                <Smartphone className="h-3 w-3" />
-              ) : (
-                <Globe2 className="h-3 w-3" />
-              )}
-              {platform.label}
-            </div>
+              <LogOut className="h-3.5 w-3.5" />
+              <span className="text-[11px] font-medium">Sair da Conta</span>
+            </button>
+            <p className="mt-2.5 text-[10px]" style={{ color: "var(--muted-2)" }}>
+              OmniStudio v{APP_VERSION} · {OWNER}
+            </p>
           </div>
-        </header>
+        )}
+      </aside>
 
-        <main className="min-h-0 flex-1">
+      <div className={isMobile ? "flex md:hidden fixed bottom-0 left-0 right-0 z-50" : "flex min-w-0 flex-1 flex-col"}>
+        {isMobile && (
+          <nav className="flex flex-col items-center gap-1.5 p-2" style={{ background: "var(--surface)", borderTop: "1px solid var(--border)", paddingBottom: "env(safe-area-inset-bottom)" }}>
+            {NAV.map((item) => {
+              const Icon = item.icon;
+              const active = view === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setView(item.id)}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "flex-1 items-center justify-center rounded-lg px-2 py-1.5 transition-colors text-[10px]",
+                    active ? "font-medium bg-[var(--accent)] text-[var(--accent-ink)]" : "hover:bg-[var(--surface-2)]",
+                  )}
+                >
+                  <Icon className="h-4 w-4" strokeWidth={1.7} />
+                  <span className="truncate">{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        )}
+
+        <div className={!isMobile ? "flex h-[54px] shrink-0 items-center justify-between gap-4 border-b px-5" : ""}>
+          {!isMobile && (
+            <header
+              className="glass z-30 flex h-[54px] shrink-0 items-center justify-between gap-4 border-b px-5"
+              style={{ borderColor: "var(--border)" }}
+            >
+              <div className="min-w-0">
+                <h1 className="truncate text-[13px] font-semibold tracking-[-0.01em]">{VIEW_META[view].title}</h1>
+                <p className="truncate text-[11px]" style={{ color: "var(--muted)" }}>
+                  {VIEW_META[view].subtitle}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <div
+                  className="hidden items-center gap-2 rounded-full border px-2.5 py-1 text-[10px] sm:flex"
+                  style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--muted)" }}
+                  title={configured ? `${configured} provedor(es) com chave` : "Nenhuma chave: cérebro local"}
+                >
+                  {PROVIDER_ORDER.map((provider) => (
+                    <span key={provider} className="flex items-center gap-1">
+                      <span
+                        className="inline-block h-1.5 w-1.5 rounded-full"
+                        style={{ background: settings.keys[provider]?.trim() ? "#4ade80" : "#3f3f46" }}
+                      />
+                      {PROVIDER_LABEL[provider]}
+                    </span>
+                  ))}
+                </div>
+
+                <div
+                  className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px]"
+                  style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--muted)" }}
+                >
+                  {platform.kind === "desktop" ? (
+                    <Monitor className="h-3 w-3" />
+                  ) : platform.kind === "android" ? (
+                    <Smartphone className="h-3 w-3" />
+                  ) : (
+                    <Globe2 className="h-3 w-3" />
+                  )}
+                  {platform.label}
+                </div>
+              </div>
+            </header>
+          )}
+        </div>
+
+        <main className={isMobile ? "min-h-0 flex-1" : "min-h-0 flex-1">
+          {isMobile ? "" : "<main className='min-h-0 flex-1'>"}
           <motion.div
             key={view}
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
-            className="h-full min-h-0"
+            className={isMobile ? "h-full min-h-0" : "h-full min-h-0"}
           >
             {view === "chat" ? <ChatView /> : null}
             {view === "studio" ? <StudioView /> : null}

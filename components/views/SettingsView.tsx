@@ -44,7 +44,7 @@ const STATUS_TONE: Record<string, "ok" | "warn" | "danger" | "neutral"> = {
 
 export default function SettingsView() {
   const { settings, update, updateKeys, updateSupabase, reset } = useSettings();
-  const { session, signIn, signOut, configured } = useAuth();
+  const { session, signOut, configured } = useAuth();
   const [tab, setTab] = useState<TabId>("keys");
   const [reveal, setReveal] = useState<Record<string, boolean>>({});
   const [status, setStatus] = useState<Record<ProviderId, ProviderTestResult & { testing?: boolean }>>({
@@ -278,7 +278,7 @@ export default function SettingsView() {
                       {settings.theme === theme.id ? <Check className="h-3.5 w-3.5" /> : null}
                     </span>
                   </button>
-                ))}
+                ))
               </div>
 
               <div className="panel p-3.5">
@@ -296,7 +296,7 @@ export default function SettingsView() {
                         borderColor: settings.accent === accent.value ? "var(--text)" : "transparent",
                       }}
                     />
-                  ))}
+                  ))
                 </div>
               </div>
 
@@ -335,111 +335,153 @@ export default function SettingsView() {
 
               <div className="panel space-y-2.5 p-3.5">
                 <div>
-                  <label className="label" htmlFor="supabase-url">
-                    URL do projeto
-                  </label>
-                  <input
-                    id="supabase-url"
-                    value={settings.supabase.url}
-                    onChange={(event) => updateSupabase({ url: event.target.value })}
-                    placeholder="https://seu-projeto.supabase.co"
-                    className="input mono mt-1 !text-[11px]"
-                    spellCheck={false}
-                  />
-                </div>
-                <div>
-                  <label className="label" htmlFor="supabase-key">
-                    Anon key
-                  </label>
-                  <input
-                    id="supabase-key"
-                    type="password"
-                    value={settings.supabase.anonKey}
-                    onChange={(event) => updateSupabase({ anonKey: event.target.value })}
-                    placeholder="sb_publishable_b-Nl5hUy1JnoqFmcLm6isg_pmqITIEG"
-                    className="input mono mt-1 !text-[11px]"
-                    spellCheck={false}
-                  />
-                </div>
-                <Toggle
-                  label="Ativar sincronização"
-                  description="Conversas, configurações e chaves vão para o seu projeto Supabase."
-                  checked={settings.supabase.enabled}
-                  onChange={(enabled) => updateSupabase({ enabled })}
-                />
-                <p className="text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
-                  Rode o arquivo supabase-schema.sql no SQL Editor, ative o provider Google e cadastre a URL de retorno em
-                  Authentication → URL Configuration.{" "}
-                  <a
-                    href="https://github.com/SysArchX/OmniStudio/blob/main/docs/google-login-setup.md"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline decoration-dotted"
-                    style={{ color: "var(--text)" }}
-                  >
-                    Passo a passo completo
-                  </a>
-                </p>
-              </div>
-
-              <div className="panel space-y-2.5 p-3.5">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    {session?.user.avatar ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={session.user.avatar} alt="" className="h-8 w-8 rounded-full" referrerPolicy="no-referrer" />
-                    ) : (
-                      <span className="grid h-8 w-8 place-items-center rounded-full text-[11px]" style={{ background: "var(--surface-3)" }}>
-                        OS
-                      </span>
-                    )}
-                    <div>
-                      <p className="text-[12px] font-medium">{session ? session.user.name : "Modo local"}</p>
-                      <p className="text-[10.5px]" style={{ color: "var(--muted-2)" }}>
-                        {session ? session.user.email : "sem conta conectada"}
-                      </p>
-                    </div>
-                  </div>
+                  <p className="text-[12px] font-medium">Sua conta</p>
                   {session ? (
-                    <button type="button" onClick={() => void signOut()} className="btn btn-ghost !text-[11px]">
-                      <LogOut className="h-3 w-3" />
-                      Sair
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {session.user.avatar ? (
+                        <img src={session.user.avatar} alt="" className="h-8 w-8 rounded-full" referrerPolicy="no-referrer" />
+                      ) : (
+                        <span className="grid h-8 w-8 place-items-center rounded-full text-[11px]" style={{ background: "var(--surface-3)" }}>
+                          OS
+                        </span>
+                      )}
+                      <div>
+                        <p className="text-[12px] font-medium">{session ? session.user.name : "Modo local"}</p>
+                        <p className="text-[10.5px]" style={{ color: "var(--muted-2)" }}>
+                          {session ? session.user.email : "sem conta conectada"}
+                        </p>
+                      </div>
+                    </div>
                   ) : (
-                    <button type="button" onClick={signIn} disabled={!configured} className="btn !text-[11px]">
-                      Entrar com Google
-                    </button>
+                    <p className="text-[12px] font-medium">Modo local</p>
                   )}
                 </div>
 
-                <div className="flex flex-wrap gap-1.5">
-                  <button type="button" onClick={() => void cloudTest()} disabled={busy} className="btn btn-ghost !text-[11px]">
-                    {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                    Testar conexão
-                  </button>
-                  <button type="button" onClick={() => void cloudPush()} disabled={busy || !session} className="btn btn-ghost !text-[11px]">
-                    <CloudUpload className="h-3 w-3" />
-                    Enviar
-                  </button>
-                  <button type="button" onClick={() => void cloudPull()} disabled={busy || !session} className="btn btn-ghost !text-[11px]">
-                    <CloudDownload className="h-3 w-3" />
-                    Baixar
-                  </button>
+                {/* Removidos campos manuais de URL e Anon Key - agora usa credenciais padrão ou configuradas */}
+
+                <div className="panel space-y-2.5 p-3.5">
+                  <div className="flex items-center justify-between gap-3">
+                    {session ? (
+                      <div className="flex items-center gap-2">
+                        {session.user.avatar ? (
+                          <img src={session.user.avatar} alt="" className="h-8 w-8 rounded-full" referrerPolicy="no-referrer" />
+                        ) : (
+                          <span className="grid h-8 w-8 place-items-center rounded-full text-[11px]" style={{ background: "var(--surface-3)" }}>
+                            OS
+                          </span>
+                        )}
+                        <div>
+                          <p className="text-[12px] font-medium">{session ? session.user.name : "Modo local"}</p>
+                          <p className="text-[10.5px]" style={{ color: "var(--muted-2)" }}>
+                            {session ? session.user.email : "sem conta conectada"}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void signOut()}
+                        className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-[11px] font-medium transition-colors hover:bg-[var(--surface-2)]"
+                        style={{ color: "var(--text)" }}
+                      >
+                        <LogOut className="h-3 w-3" />
+                        Sair da Conta
+                      </button>
+                    ) : (
+                      <div>
+                        {/* Google OAuth - usa configuração do Supabase */}
+                        <button
+                          type="button"
+                          onClick={signIn}
+                          disabled={!configured}
+                          className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-[11px] font-medium transition-colors hover:bg-[var(--surface-2)]"
+                          style={{ color: "var(--text)" }}
+                        >
+                          <Globe2 className="h-3.5 w-3.5" />
+                          Entrar com Google
+                        </button>
+
+                        {/* Email OTP login - redirect to Welcome */}
+                        <button
+                          type="button"
+                          onClick={() => window.location.href = "/"}
+                          className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-[10.5px] font-medium transition-colors hover:bg-[var(--surface-2)]"
+                          style={{ color: "var(--text)" }}
+                        >
+                          <LogIn className="h-3.5 w-3.5" />
+                          Entrar com e-mail
+                        </button>
+
+                        {/* Continue as guest */}
+                        <button
+                          type="button"
+                          onClick={() => setGuest(true)}
+                          className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-[10.5px] font-medium transition-colors hover:bg-[var(--surface-2)]"
+                          style={{ color: "var(--text)" }}
+                        >
+                          <LogIn className="h-3.5 w-3.5" />
+                          Continuar sem login
+                        </button>
+                      </div>
+                    )}
+
+                    {session ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        <button type="button" onClick={() => void cloudTest()} disabled={busy} className="btn btn-ghost !text-[11px]">
+                          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                          Testar conexão
+                        </button>
+                        <button type="button" onClick={() => void cloudPush()} disabled={busy || !session} className="btn btn-ghost !text-[11px]">
+                          <CloudUpload className="h-3 w-3" />
+                          Enviar
+                        </button>
+                        <button type="button" onClick={() => void cloudPull()} disabled={busy || !session} className="btn btn-ghost !text-[11px]">
+                          <CloudDownload className="h-3 w-3" />
+                          Baixar
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {session ? (
+                    <p className="text-[10.5px]" style={{ color: "var(--muted-2)" }}>
+                      Conectado como {session.user.name || session.user.email}
+                    </p>
+                  ) : (
+                    <p className="text-[10.5px]" style={{ color: "var(--muted-2)" }}>
+                      Sem conta conectada (modo local)
+                    </p>
+                  )}
+
+                  {sync ? (
+                    <p className="text-[10.5px]" style={{ color: "var(--muted-2)" }}>
+                      {sync}
+                    </p>
+                  ) : null}
                 </div>
-                {sync ? (
-                  <p className="text-[10.5px]" style={{ color: "var(--muted-2)" }}>
-                    {sync}
+
+                <div className="panel space-y-2 p-3.5">
+                  <p className="text-[12px] font-medium">Sobre as chaves</p>
+                  <p className="text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+                    Groq, OpenRouter e GitHub Models são gratuitos dentro dos limites de cada serviço. A pesquisa web não usa
+                    chave: consulta Wikipédia e DuckDuckGo e lê páginas pelo Jina Reader.
                   </p>
-                ) : null}
+                </div>
               </div>
 
-              <div className="panel space-y-2 p-3.5">
-                <p className="text-[12px] font-medium">Sobre as chaves</p>
-                <p className="text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
-                  Groq, OpenRouter e GitHub Models são gratuitos dentro dos limites de cada serviço. A pesquisa web não usa
-                  chave: consulta Wikipédia e DuckDuckGo e lê páginas pelo Jina Reader.
-                </p>
-              </div>
+              {session ? (
+                <div className="panel space-y-2 p-3.5">
+                  <p className="text-[12px] font-medium">Sair da conta</p>
+                  <button
+                    type="button"
+                    onClick={() => void signOut()}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[11px] font-medium transition-colors hover:bg-[var(--surface-2)]"
+                    style={{ color: "var(--text)" }}
+                  >
+                    <LogOut className="h-3 w-3" />
+                    Sair da Conta
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>

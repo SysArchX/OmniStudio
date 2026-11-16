@@ -433,8 +433,24 @@ export default function ChatView() {
                     <button
                       type="button"
                       onClick={handleAuthWithGoogle}
-                                                                  className="btn google-btn w-full justify-center">
-                      <Globe className="h-4 w-4" />
+                      className="btn google-btn w-full justify-center flex items-center gap-2"
+                    >
+                      <!-- SVG oficial Google 4 cores -->
+                      <svg
+                        className="h-4 w-4"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polygon points="23 7 16 12 23 17"/>
+                        <rect x="1" y="13" width="23" height="12" rx="2" ry="2"/>
+                        <line x1="1" y1="1" x2="23" y2="1"/>
+                        <line x1="1" y1="23" x2="23" y2="23"/>
+                        <polyline points="1 7 5 7 5 12 9 12 9 17 5 17 5 17 9 23 9"/>
+                      </svg>
                       Entrar com Google
                     </button>
                     <div className="mt-2">

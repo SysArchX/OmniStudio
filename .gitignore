@@ -6,3 +6,4 @@ android
 *.log
 .DS_Store
 next-env.d.ts
+*.env*

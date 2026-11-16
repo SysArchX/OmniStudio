@@ -16,6 +16,7 @@ const PALETTES: Record<EnvId, Palette> = {
   urban_storm: { sky: ["#1b1d24", "#0a0b0e"], ground: "#15171c", accent: "#b9c4d6", detail: "#2a2e37" },
   arctic_snow: { sky: ["#9fc3d8", "#4a6b80"], ground: "#e7f2f8", accent: "#8fd0ef", detail: "#c3dbe8" },
   minimal_studio: { sky: ["#141418", "#0b0b0e"], ground: "#1a1a20", accent: "#e4e4e7", detail: "#26262e" },
+  escritorio_tech: { sky: ["#1e293b", "#0f172a"], ground: "#1e293b", accent: "#f59e0b", detail: "#3b82f6" },
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -109,24 +110,123 @@ function background(ctx: CanvasRenderingContext2D, env: EnvId, t: number) {
       ctx.arc(x, y, 2 + (index % 3), 0, Math.PI * 2);
       ctx.fill();
     }
-  } else {
-    ctx.strokeStyle = "rgba(255,255,255,0.05)";
-    ctx.lineWidth = 1;
-    for (let x = 0; x < VIDEO_W; x += 48) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, VIDEO_H);
-      ctx.stroke();
+  } else if (env === "minimal_studio") {
+    ctx.fillStyle = palette.detail;
+    ctx.beginPath();
+    ctx.moveTo(0, horizon);
+    for (let x = 0; x <= VIDEO_W; x += 80) {
+      ctx.lineTo(x, horizon - 90 - Math.sin((x + 40) / 120) * 70);
     }
-    for (let y = 0; y < VIDEO_H; y += 48) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(VIDEO_W, y);
-      ctx.stroke();
-    }
-    ctx.fillStyle = "rgba(255,255,255,0.045)";
+    ctx.lineTo(VIDEO_W, horizon);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.05)";
     ctx.beginPath();
     ctx.arc(VIDEO_W / 2, VIDEO_H * 0.44, 230, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (env === "escritorio_tech") {
+    // Desk surface
+    ctx.fillStyle = "#1e293b";
+    ctx.beginPath();
+    ctx.roundRect(0, horizon, VIDEO_W, VIDEO_H - horizon, 0);
+    ctx.fill();
+    
+    // Desktop background gradient
+    const deskGrad = ctx.createLinearGradient(0, horizon, 0, VIDEO_H);
+    deskGrad.addColorStop(0, "#1e293b");
+    deskGrad.addColorStop(1, "#0f172a");
+    ctx.fillStyle = deskGrad;
+    ctx.fillRect(0, horizon, VIDEO_W, VIDEO_H - horizon);
+    
+    // Monitor screen (left side)
+    ctx.fillStyle = "#0f172a";
+    ctx.roundRect(40, horizon + 40, 300, 180, 8);
+    ctx.fill();
+    ctx.fillStyle = "#1e293b";
+    ctx.roundRect(44, horizon + 44, 292, 172, 8);
+    ctx.fill();
+    
+    // Monitor screen lines
+    ctx.strokeStyle = "#3b82f6";
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 5; i++) {
+      const y = horizon + 60 + i * 28;
+      ctx.beginPath();
+      ctx.moveTo(44, y);
+      ctx.lineTo(336, y);
+      ctx.stroke();
+    }
+    
+    // Keyboard area
+    ctx.fillStyle = "#475569";
+    ctx.beginPath();
+    ctx.roundRect(40, horizon + 240, VIDEO_W - 80, 40, 6);
+    ctx.fill();
+    
+    // Mouse area (small rectangle)
+    ctx.fillStyle = "#64748b";
+    ctx.beginPath();
+    ctx.roundRect(VIDEO_W - 100, horizon + 260, 30, 20, 4);
+    ctx.fill();
+    
+    // Coins pile (right side)
+    ctx.fillStyle = "#f59e0b";
+    for (let i = 0; i < 5; i++) {
+      const x = VIDEO_W - 60 - i * 20;
+      const y = horizon + 100 + i * 12;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 15, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    // Graph/chart elements
+    ctx.strokeStyle = "#3b82f6";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(VIDEO_W - 150, horizon + 150);
+    for (let i = 1; i < 5; i++) {
+      const x = VIDEO_W - 150 + i * 40;
+      const y = horizon + 150 - i * 20;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    
+    // Notebook on desk
+    ctx.fillStyle = "#0f172a";
+    ctx.roundRect(50, horizon + 80, 200, 250, 10);
+    ctx.fill();
+    ctx.strokeStyle = "#64748b";
+    ctx.lineWidth = 2;
+    ctx.roundRect(50, horizon + 80, 200, 250, 10);
+    ctx.stroke();
+    
+    // Notebook screen
+    ctx.fillStyle = "#1e293b";
+    ctx.roundRect(54, horizon + 84, 192, 200, 8);
+    ctx.fill();
+    
+    // Notebook border decoration
+    ctx.strokeStyle = "#f59e0b";
+    ctx.lineWidth = 1;
+    ctx.roundRect(54, horizon + 84, 192, 200, 8);
+    ctx.stroke();
+    
+    // Shelf decorations (top)
+    ctx.fillStyle = "#f59e0b";
+    for (let i = 0; i < 4; i++) {
+      const x = 60 + i * 40;
+      ctx.beginPath();
+      ctx.arc(x, horizon + 50, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    // Plant (small)
+    ctx.fillStyle = "#10b981";
+    ctx.beginPath();
+    ctx.ellipse(VIDEO_W - 50, horizon + 150, 15, 25, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#dc2626";
+    ctx.beginPath();
+    ctx.arc(VIDEO_W - 50, horizon + 150, 8, 0, Math.PI * 2);
     ctx.fill();
   }
 
