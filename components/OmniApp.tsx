@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Clapperboard,
   FolderOpen,
@@ -18,6 +18,7 @@ import { SettingsProvider, useSettings } from "@/lib/settings-store";
 import { AuthProvider, useAuth } from "@/lib/auth-store";
 import { WorkspaceProvider, useWorkspace } from "@/lib/workspace-store";
 import { pickWorkspace } from "@/lib/agent";
+import { pullKeys, pushConversations, pushSettings } from "@/lib/cloud";
 import { APP_VERSION, OWNER } from "@/lib/releases";
 import type { ViewId } from "@/lib/types";
 import { cn } from "./ui";
@@ -276,13 +277,45 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
 function Shell() {
   const { view, setView, inspectorOpen, toggleInspector, mobileSidebarOpen, setMobileSidebarOpen, studio } = useWorkspace();
-  const { openAuth } = useAuth();
-  const { settings } = useSettings();
+  const { session, openAuth } = useAuth();
+  const { settings, updateKeys } = useSettings();
+  const keysRestored = useRef<string | null>(null);
+  const lastPush = useRef<string>("");
   const [platform, setPlatform] = useState<PlatformInfo>({ kind: "web", label: "Navegador", native: false, bridge: null });
 
   useEffect(() => {
     setPlatform(detectPlatform());
   }, []);
+
+  // Restaura as chaves salvas quando a conta é aberta em outro dispositivo.
+  useEffect(() => {
+    if (!session || keysRestored.current === session.user.id) return;
+    keysRestored.current = session.user.id;
+    if (settings.keys.groq || settings.keys.openrouter) return;
+    void pullKeys(settings.supabase, session).then((result) => {
+      if (result.ok && result.data) updateKeys(result.data);
+    });
+  }, [session, settings.keys, settings.supabase, updateKeys]);
+
+  // Sincroniza configurações e conversas a cada 10 segundos (só quando mudam).
+  useEffect(() => {
+    if (!session) return;
+    const push = async () => {
+      const snapshot = JSON.stringify({ settings, keys: null });
+      if (snapshot === lastPush.current) return;
+      const result = await pushSettings(settings, settings.supabase, session);
+      if (!result.ok) return;
+      try {
+        const chats = JSON.parse(window.localStorage.getItem("omnistudio.chats.v1") ?? "[]");
+        await pushConversations(chats, settings.supabase, session);
+      } catch {
+        /* sem conversas locais */
+      }
+      lastPush.current = snapshot;
+    };
+    const timer = window.setInterval(() => void push(), 10000);
+    return () => window.clearInterval(timer);
+  }, [session, settings]);
 
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden" style={{ background: "var(--bg)" }}>
@@ -340,7 +373,7 @@ function Shell() {
           >
             <PanelRight className="h-4 w-4" />
           </button>
-          {!settings.keys.groq && !settings.keys.openrouter && !settings.keys.github ? (
+          {!settings.keys.groq && !settings.keys.openrouter ? (
             <button type="button" onClick={openAuth} className="btn !hidden !text-[11px] sm:!inline-flex">
               Entrar
             </button>

@@ -30,13 +30,6 @@ export async function pushSettings(settings: AppSettings, config: SupabaseConfig
       payload,
       updated_at: new Date().toISOString(),
     });
-    await restUpsert(config, session, "api_keys", {
-      user_id: session.user.id,
-      groq: settings.keys.groq,
-      openrouter: settings.keys.openrouter,
-      github: settings.keys.github,
-      updated_at: new Date().toISOString(),
-    });
     await restUpsert(config, session, "profiles", {
       id: session.user.id,
       email: session.user.email,
@@ -44,7 +37,7 @@ export async function pushSettings(settings: AppSettings, config: SupabaseConfig
       avatar_url: session.user.avatar,
       updated_at: new Date().toISOString(),
     });
-    return { ok: true, message: "Configurações e chaves salvas na nuvem." };
+    return { ok: true, message: "Configurações salvas na nuvem." };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "Falha ao enviar." };
   }
@@ -56,19 +49,7 @@ export async function pullSettings(config: SupabaseConfig, session: AuthSession 
     const rows = (await restSelect(config, session, "app_settings", "select=payload&limit=1")) as Array<{
       payload?: Partial<AppSettings>;
     }>;
-    const keys = (await restSelect(config, session, "api_keys", "select=groq,openrouter,github&limit=1")) as Array<{
-      groq?: string;
-      openrouter?: string;
-      github?: string;
-    }>;
     const data: Partial<AppSettings> = { ...(rows[0]?.payload ?? {}) };
-    if (keys[0]) {
-      data.keys = {
-        groq: keys[0].groq ?? "",
-        openrouter: keys[0].openrouter ?? "",
-        github: keys[0].github ?? "",
-      };
-    }
     return { ok: true, message: "Configurações restauradas da nuvem.", data };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "Falha ao baixar." };
@@ -119,5 +100,47 @@ export async function pullConversations(
     return { ok: true, message: `${data.length} conversa(s) restaurada(s).`, data };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : "Falha ao baixar conversas." };
+  }
+}
+
+/* --------------------------- chaves de API na nuvem --------------------------- */
+
+/** Envia só as chaves, por ação explícita do usuário. */
+export async function pushKeys(
+  keys: AppSettings["keys"],
+  config: SupabaseConfig,
+  session: AuthSession | null,
+): Promise<SyncResult> {
+  if (!session) return { ok: false, message: "Entre na conta para salvar as chaves." };
+  try {
+    await restUpsert(config, session, "api_keys", {
+      user_id: session.user.id,
+      groq: keys.groq ?? "",
+      openrouter: keys.openrouter ?? "",
+      updated_at: new Date().toISOString(),
+    });
+    return { ok: true, message: "Chaves salvas na sua conta." };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Falha ao salvar as chaves." };
+  }
+}
+
+/** Baixa as chaves salvas; devolve null quando não há nada guardado. */
+export async function pullKeys(
+  config: SupabaseConfig,
+  session: AuthSession | null,
+): Promise<PullResult<AppSettings["keys"]>> {
+  if (!session) return { ok: false, message: "Entre na conta para baixar as chaves." };
+  try {
+    const rows = (await restSelect(config, session, "api_keys", "select=groq,openrouter&limit=1")) as Array<{
+      groq?: string;
+      openrouter?: string;
+    }>;
+    if (!rows[0]) return { ok: false, message: "Nenhuma chave salva nesta conta." };
+    const keys = { groq: rows[0].groq ?? "", openrouter: rows[0].openrouter ?? "" };
+    if (!keys.groq && !keys.openrouter) return { ok: false, message: "Nenhuma chave salva nesta conta." };
+    return { ok: true, message: "Chaves restauradas da conta.", data: keys };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Falha ao baixar as chaves." };
   }
 }

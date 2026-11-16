@@ -19,6 +19,7 @@ import {
 import { ACCENTS, useSettings } from "@/lib/settings-store";
 import { useAuth } from "@/lib/auth-store";
 import { getComposioKey, setComposioKey } from "@/lib/composio";
+import { pullKeys, pushKeys } from "@/lib/cloud";
 import {
   providerKeyHelp,
   PROVIDER_LABEL,
@@ -93,7 +94,6 @@ export default function SettingsView() {
   const [status, setStatus] = useState<Record<ProviderId, ProviderTestResult & { testing?: boolean }>>({
     groq: { ok: false, status: "idle", message: "Standby" },
     openrouter: { ok: false, status: "idle", message: "Standby" },
-    github: { ok: false, status: "idle", message: "Standby" },
   });
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [sync, setSync] = useState<string | null>(null);
@@ -116,6 +116,21 @@ export default function SettingsView() {
     } catch {
       return [];
     }
+  };
+
+  const saveKeysToCloud = async () => {
+    setBusy(true);
+    const result = await pushKeys(settings.keys, settings.supabase, session);
+    setSync(result.message);
+    setBusy(false);
+  };
+
+  const loadKeysFromCloud = async () => {
+    setBusy(true);
+    const result = await pullKeys(settings.supabase, session);
+    if (result.ok && result.data) updateKeys(result.data);
+    setSync(result.message);
+    setBusy(false);
   };
 
   const cloudTest = async () => {
@@ -444,6 +459,39 @@ export default function SettingsView() {
                 {sync ? (
                   <p className="text-[10.5px]" style={{ color: "var(--muted-2)" }}>
                     {sync}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="panel space-y-2 p-3.5">
+                <p className="text-[12px] font-medium">Chaves na nuvem</p>
+                <p className="text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+                  Só as chaves de API precisam deste botão: configurações e conversas sincronizam sozinhas a cada 10 s.
+                  Ao entrar em outro dispositivo, as chaves salvas são restauradas automaticamente.
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => void saveKeysToCloud()}
+                    disabled={busy || !session}
+                    className="btn !text-[11px] disabled:opacity-50"
+                  >
+                    <CloudUpload className="h-3 w-3" />
+                    Salvar chaves na nuvem
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void loadKeysFromCloud()}
+                    disabled={busy || !session}
+                    className="btn btn-ghost !text-[11px] disabled:opacity-50"
+                  >
+                    <CloudDownload className="h-3 w-3" />
+                    Restaurar chaves
+                  </button>
+                </div>
+                {!session ? (
+                  <p className="text-[10px]" style={{ color: "var(--muted-2)" }}>
+                    Entre na conta para usar.
                   </p>
                 ) : null}
               </div>

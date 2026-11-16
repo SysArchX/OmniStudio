@@ -33,18 +33,16 @@ export class ProviderError extends Error {
   }
 }
 
-export const PROVIDER_ORDER: ProviderId[] = ["groq", "openrouter", "github"];
+export const PROVIDER_ORDER: ProviderId[] = ["groq", "openrouter"];
 
 export const PROVIDER_LABEL: Record<ProviderId, string> = {
   groq: "Groq",
   openrouter: "OpenRouter",
-  github: "GitHub Models",
 };
 
 export const PROVIDER_MODEL: Record<ProviderId, string> = {
   groq: "llama-3.3-70b-versatile",
   openrouter: "openrouter/free",
-  github: "openai/gpt-4o-mini",
 };
 
 /** Fallbacks usados só quando a OpenRouter recusa o roteador free. */
@@ -53,7 +51,6 @@ const OPENROUTER_FALLBACKS = ["nvidia/nemotron-3-ultra-550b-a55b:free", "google/
 const KEY_HELP: Record<ProviderId, string> = {
   groq: "console.groq.com/keys",
   openrouter: "openrouter.ai/keys",
-  github: "github.com/settings/tokens",
 };
 
 export function providerKeyHelp(provider: ProviderId) {
@@ -148,21 +145,8 @@ async function callOpenRouter(messages: BrainMessage[], key: string) {
   throw lastError instanceof Error ? lastError : new Error("OpenRouter indisponível.");
 }
 
-async function callGithubModels(messages: BrainMessage[], key: string) {
-  const result = await postJson(
-    "https://models.github.ai/inference/chat/completions",
-    { model: PROVIDER_MODEL.github, messages: toPlain(messages), temperature: 0.7, max_tokens: 2048 },
-    { Authorization: `Bearer ${key}`, Accept: "application/vnd.github+json" },
-  );
-  if (!result.ok) throw new ProviderError("github", classify(result.status), result.text.slice(0, 240), result.status);
-  const text = readChoice(result.text);
-  if (!text) throw new ProviderError("github", "other", "Resposta vazia do provedor.");
-  return text;
-}
-
 async function callProvider(provider: ProviderId, messages: BrainMessage[], key: string) {
   if (provider === "groq") return callGroq(messages, key);
-  if (provider === "github") return callGithubModels(messages, key);
   return callOpenRouter(messages, key);
 }
 
@@ -224,7 +208,7 @@ export async function testProvider(provider: ProviderId, key: string): Promise<P
   } catch (error) {
     if (error instanceof ProviderError) {
       if (error.kind === "limit") return { ok: false, status: "limit", message: "Limite atingido, tente mais tarde." };
-      if (error.kind === "auth") return { ok: false, status: "auth", message: "Chave recusada pelo provedor." };
+      if (error.kind === "auth") return { ok: false, status: "auth", message: `Chave recusada (${error.status ?? "401"}): ${providerDetail(error.message)}` };
       if (error.kind === "network") return { ok: false, status: "network", message: `Provedor instável: ${providerDetail(error.message)}` };
       return {
         ok: false,
