@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowLeft,
+  Check,
   Clapperboard,
   Download,
   FolderOpen,
@@ -9,9 +11,13 @@ import {
   LogOut,
   Menu,
   MessagesSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
   PanelRight,
+  Pencil,
   Plus,
   Settings2,
+  ShieldCheck,
   TerminalSquare,
   Trash2,
 } from "lucide-react";
@@ -22,11 +28,12 @@ import { pickWorkspace } from "@/lib/agent";
 import { pullKeys, pushConversations, pushSettings } from "@/lib/cloud";
 import { startHeartbeat, startRemoteRunner } from "@/lib/remote";
 import { APP_VERSION, OWNER } from "@/lib/releases";
-import type { ViewId } from "@/lib/types";
+import type { Conversation, ViewId } from "@/lib/types";
 import { cn } from "./ui";
 import AuthModal from "./AuthModal";
 import Inspector from "./Inspector";
 import DownloadsModal from "./DownloadsModal";
+import PairAuthorize from "./PairAuthorize";
 import ChatView from "./views/ChatView";
 import StudioView from "./views/StudioView";
 import AgentView from "./views/AgentView";
@@ -49,13 +56,125 @@ const VIEW_TITLE: Record<ViewId, string> = {
   credits: "Créditos",
 };
 
-function AccountBar({ compact }: { compact?: boolean }) {
+/** No navegador o app mostra só o chat; a suíte completa vive nos apps instalados. */
+function navFor(native: boolean) {
+  return native ? NAV : NAV.filter((item) => item.id === "chat");
+}
+
+function firstName(value: string) {
+  return value.split(/[\s@]/)[0] || "você";
+}
+
+function groupConversations(items: Conversation[]) {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const cutoff = startOfToday.getTime();
+  return {
+    today: items.filter((item) => item.updatedAt >= cutoff),
+    earlier: items.filter((item) => item.updatedAt < cutoff),
+  };
+}
+
+function ConversationRow({
+  conversation,
+  active,
+  onOpen,
+  onRename,
+  onDelete,
+  compact,
+}: {
+  conversation: Conversation;
+  active: boolean;
+  onOpen: () => void;
+  onRename: (title: string) => void;
+  onDelete: () => void;
+  compact?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(conversation.title);
+
+  const commit = () => {
+    const title = draft.trim();
+    if (title && title !== conversation.title) onRename(title);
+    setEditing(false);
+  };
+
+  if (editing && !compact) {
+    return (
+      <div className="flex items-center gap-1 rounded-lg px-2 py-1" style={{ background: "var(--surface-2)" }}>
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commit();
+            }
+            if (event.key === "Escape") {
+              setDraft(conversation.title);
+              setEditing(false);
+            }
+          }}
+          autoFocus
+          aria-label="Renomear conversa"
+          className="min-w-0 flex-1 bg-transparent text-[11.5px] outline-none"
+        />
+        <button type="button" onClick={commit} aria-label="Confirmar nome" style={{ color: "var(--muted)" }}>
+          <Check className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn("group flex items-center gap-1 rounded-lg px-2 py-1.5", active ? "" : "hover:bg-[var(--surface-2)]")}
+      style={active ? { background: "var(--surface-2)" } : undefined}
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        className="min-w-0 flex-1 truncate text-left text-[11.5px]"
+        style={{ color: active ? "var(--text)" : "var(--muted)" }}
+        title={conversation.title}
+      >
+        {conversation.title || "Nova conversa"}
+      </button>
+      {compact ? null : (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(conversation.title);
+              setEditing(true);
+            }}
+            className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+            aria-label={`Renomear ${conversation.title}`}
+            style={{ color: "var(--muted-2)" }}
+          >
+            <Pencil className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+            aria-label={`Excluir ${conversation.title}`}
+            style={{ color: "var(--muted-2)" }}
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function AccountCard({ compact }: { compact?: boolean }) {
   const { session, openAuth, signIn, signOut } = useAuth();
   const { updateKeys } = useSettings();
-  const leaveAccount = () => {
-    updateKeys({ openrouter: "", groq: "", mistral: "", composio: "" });
-    void signOut();
-  };
+  const { setView } = useWorkspace();
+  const [waiting, setWaiting] = useState(false);
 
   if (session) {
     return (
@@ -64,11 +183,8 @@ function AccountBar({ compact }: { compact?: boolean }) {
           {session.user.avatar ? (
             <img src={session.user.avatar} alt="" className="h-7 w-7 rounded-full" referrerPolicy="no-referrer" />
           ) : (
-            <span
-              className="grid h-7 w-7 place-items-center rounded-full text-[10px] font-medium"
-              style={{ background: "var(--surface-3)" }}
-            >
-              {(session.user.name || "OS").slice(0, 2).toUpperCase()}
+            <span className="grid h-7 w-7 place-items-center rounded-full text-[10px] font-medium" style={{ background: "var(--surface-3)" }}>
+              {(session.user.name || session.user.email || "OS").slice(0, 2).toUpperCase()}
             </span>
           )}
           {compact ? null : (
@@ -79,16 +195,30 @@ function AccountBar({ compact }: { compact?: boolean }) {
               </p>
             </div>
           )}
-          <button
-            type="button"
-            onClick={leaveAccount}
-            className="btn btn-ghost !p-1.5"
-            aria-label="Sair da conta"
-            title="Sair"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-          </button>
         </div>
+        {compact ? null : (
+          <div className="mt-1.5 flex gap-1">
+            <button
+              type="button"
+              onClick={() => setView("settings")}
+              className="btn btn-ghost flex-1 justify-center !text-[10.5px]"
+            >
+              <Settings2 className="h-3 w-3" />
+              Configurações
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                updateKeys({ openrouter: "", groq: "", mistral: "", composio: "" });
+                void signOut();
+              }}
+              className="btn btn-ghost !p-1.5"
+              aria-label="Sair da conta"
+            >
+              <LogOut className="h-3 w-3" />
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -106,21 +236,31 @@ function AccountBar({ compact }: { compact?: boolean }) {
       <p className="text-[10.5px]" style={{ color: "var(--muted-2)" }}>
         Sem conta conectada
       </p>
-      <button type="button" onClick={() => void signIn()} className="btn w-full justify-center !text-[11px]">
+      <button
+        type="button"
+        onClick={() => {
+          setWaiting(true);
+          void signIn().finally(() => setWaiting(false));
+        }}
+        disabled={waiting}
+        className="btn w-full justify-center !text-[11px] disabled:opacity-60"
+      >
         <LogIn className="h-3 w-3" />
-        Entrar com Google
+        {waiting ? "Abrindo o Google..." : "Entrar com Google"}
       </button>
       <button type="button" onClick={openAuth} className="btn btn-ghost w-full justify-center !text-[11px]">
-        Entrar com e-mail
+        Entrar com e-mail ou código
       </button>
     </div>
   );
 }
 
-function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
-  const { view, setView, conversations, activeId, setActiveId, createConversation, removeConversation } = useWorkspace();
-  const { session, openAuth } = useAuth();
+function Sidebar({ onNavigate, native }: { onNavigate?: () => void; native: boolean }) {
+  const { view, setView, conversations, activeId, setActiveId, createConversation, removeConversation, patchConversation } = useWorkspace();
   const [collapsed, setCollapsed] = useState(false);
+  const [downloadsOpen, setDownloadsOpen] = useState(false);
+  const items = navFor(native);
+  const groups = useMemo(() => groupConversations(conversations), [conversations]);
 
   const openFolder = async () => {
     await pickWorkspace();
@@ -130,7 +270,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <>
-      <div className={cn("flex items-center gap-2 px-2 pb-3", collapsed && "justify-center px-0")}>
+      <div className={cn("flex items-center gap-2 px-1 pb-3", collapsed && "justify-center px-0")}>
         <div
           className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[12px] font-semibold"
           style={{ background: "var(--accent)", color: "var(--accent-ink)" }}
@@ -147,19 +287,13 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               aria-label="Recolher barra lateral"
               title="Recolher"
             >
-              <PanelRight className="h-3.5 w-3.5" />
+              <PanelLeftClose className="h-3.5 w-3.5" />
             </button>
           </>
         )}
         {collapsed ? (
-          <button
-            type="button"
-            onClick={() => setCollapsed(false)}
-            className="btn btn-ghost !p-1"
-            aria-label="Expandir barra lateral"
-            title="Expandir"
-          >
-            <Menu className="h-3 w-3" />
+          <button type="button" onClick={() => setCollapsed(false)} className="btn btn-ghost !p-1" aria-label="Expandir barra lateral">
+            <PanelLeftOpen className="h-3.5 w-3.5" />
           </button>
         ) : null}
       </div>
@@ -175,17 +309,9 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <Plus className="h-3.5 w-3.5" />
         {collapsed ? null : "Novo Chat"}
       </button>
-      <button
-        type="button"
-        onClick={() => void openFolder()}
-        className={cn("btn mb-3 w-full", collapsed ? "justify-center !px-0" : "justify-start")}
-      >
-        <FolderOpen className="h-3.5 w-3.5" />
-        {collapsed ? null : "Abrir Pasta"}
-      </button>
 
       <nav className="space-y-0.5">
-        {NAV.map((item) => {
+        {items.map((item) => {
           const Icon = item.icon;
           const active = view === item.id;
           return (
@@ -210,66 +336,105 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             </button>
           );
         })}
+        {native ? (
+          <button
+            type="button"
+            onClick={() => void openFolder()}
+            className={cn(
+              "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12.5px] transition-colors hover:bg-[var(--surface-2)]",
+              collapsed && "justify-center px-0",
+            )}
+            style={{ color: "var(--muted)" }}
+            title="Abrir Pasta"
+          >
+            <FolderOpen className="h-4 w-4 shrink-0" strokeWidth={1.7} />
+            {collapsed ? null : <span className="truncate">Abrir Pasta</span>}
+          </button>
+        ) : null}
       </nav>
 
       {collapsed ? null : (
-        <div className="mt-4 min-h-0 flex-1">
-          <p className="label mb-1.5">Conversas</p>
-          <div className="min-h-0 space-y-0.5 overflow-y-auto pb-3">
-            {conversations.length ? (
-              conversations.slice(0, 30).map((conversation) => {
-                const active = conversation.id === activeId && view === "chat";
-                return (
-                  <div
+        <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-0.5">
+          {groups.today.length ? (
+            <>
+              <p className="label mb-1.5">Hoje</p>
+              <div className="space-y-0.5">
+                {groups.today.map((conversation) => (
+                  <ConversationRow
                     key={conversation.id}
-                    className={cn("group flex items-center gap-1 rounded-lg px-2 py-1.5", active ? "" : "hover:bg-[var(--surface-2)]")}
-                    style={active ? { background: "var(--surface-2)" } : undefined}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveId(conversation.id);
-                        setView("chat");
-                        onNavigate?.();
-                      }}
-                      className="min-w-0 flex-1 truncate text-left text-[11.5px]"
-                      style={{ color: active ? "var(--text)" : "var(--muted)" }}
-                    >
-                      {conversation.title || "Nova conversa"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => removeConversation(conversation.id)}
-                      className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-                      aria-label={`Excluir ${conversation.title}`}
-                      style={{ color: "var(--muted-2)" }}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </div>
-                );
-              })
-            ) : (
-              <p className="px-1 text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
-                Nenhuma conversa ainda.
-              </p>
-            )}
-          </div>
+                    conversation={conversation}
+                    active={conversation.id === activeId && view === "chat"}
+                    onOpen={() => {
+                      setActiveId(conversation.id);
+                      setView("chat");
+                      onNavigate?.();
+                    }}
+                    onRename={(title) => patchConversation(conversation.id, { title })}
+                    onDelete={() => removeConversation(conversation.id)}
+                  />
+                ))}
+              </div>
+            </>
+          ) : null}
+
+          {groups.earlier.length ? (
+            <>
+              <p className="label mb-1.5 mt-3">Anteriores</p>
+              <div className="space-y-0.5">
+                {groups.earlier.slice(0, 40).map((conversation) => (
+                  <ConversationRow
+                    key={conversation.id}
+                    conversation={conversation}
+                    active={conversation.id === activeId && view === "chat"}
+                    onOpen={() => {
+                      setActiveId(conversation.id);
+                      setView("chat");
+                      onNavigate?.();
+                    }}
+                    onRename={(title) => patchConversation(conversation.id, { title })}
+                    onDelete={() => removeConversation(conversation.id)}
+                  />
+                ))}
+              </div>
+            </>
+          ) : null}
+
+          {!conversations.length ? (
+            <p className="px-1 text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+              Suas conversas aparecem aqui e ficam salvas na conta.
+            </p>
+          ) : null}
         </div>
       )}
 
       <div className="mt-2 space-y-1.5 border-t pt-2.5" style={{ borderColor: "var(--border)" }}>
-        <AccountBar compact={collapsed} />
         {collapsed ? null : (
-          <div className="flex items-center justify-between px-1 text-[10px]" style={{ color: "var(--muted-2)" }}>
+          <>
             <button
               type="button"
               onClick={() => {
-                setView("credits");
+                setView("settings");
                 onNavigate?.();
               }}
-              className="truncate underline decoration-dotted"
+              className="btn w-full justify-start !text-[11.5px]"
             >
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Configurações &amp; Chaves na Nuvem
+            </button>
+            <button
+              type="button"
+              onClick={() => setDownloadsOpen(true)}
+              className="btn btn-ghost w-full justify-start !text-[11.5px]"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Baixar o app completo
+            </button>
+          </>
+        )}
+        <AccountCard compact={collapsed} />
+        {collapsed ? null : (
+          <div className="flex items-center justify-between px-1 text-[10px]" style={{ color: "var(--muted-2)" }}>
+            <button type="button" onClick={() => setView("credits")} className="truncate underline decoration-dotted">
               Créditos
             </button>
             <span className="truncate">
@@ -277,26 +442,36 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             </span>
           </div>
         )}
-        {collapsed && !session ? null : null}
       </div>
+
+      <DownloadsModal open={downloadsOpen} onClose={() => setDownloadsOpen(false)} />
     </>
   );
 }
 
 function Shell() {
   const { view, setView, inspectorOpen, toggleInspector, mobileSidebarOpen, setMobileSidebarOpen, studio } = useWorkspace();
-  const { session, openAuth } = useAuth();
+  const { session } = useAuth();
   const { settings, updateKeys } = useSettings();
   const keysRestored = useRef<string | null>(null);
   const lastPush = useRef<string>("");
-  const [downloadsOpen, setDownloadsOpen] = useState(false);
   const [platform, setPlatform] = useState<PlatformInfo>({ kind: "web", label: "Navegador", native: false, bridge: null });
+  const [pairCode, setPairCode] = useState<string | null>(null);
+
+  const native = platform.native;
 
   useEffect(() => {
     setPlatform(detectPlatform());
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("pair");
+    if (code) setPairCode(code.toUpperCase());
   }, []);
 
-  // Restaura as chaves salvas quando a conta é aberta em outro dispositivo.
+  // No navegador, nada de Estúdio/Agente: o chat é o foco.
+  useEffect(() => {
+    if (!native && (view === "studio" || view === "agent")) setView("chat");
+  }, [native, view, setView]);
+
   useEffect(() => {
     if (!session || keysRestored.current === session.user.id) return;
     keysRestored.current = session.user.id;
@@ -306,7 +481,6 @@ function Shell() {
     });
   }, [session, settings.keys, settings.supabase, updateKeys]);
 
-  // App instalado: presença online + execução das tarefas enviadas pelo celular.
   useEffect(() => {
     if (platform.kind === "web" || !session || !platform.bridge) return;
     const stopHeartbeat = startHeartbeat(settings.supabase, session);
@@ -319,7 +493,6 @@ function Shell() {
     };
   }, [platform.kind, platform.bridge, session, settings.supabase]);
 
-  // Sincroniza configurações e conversas a cada 10 segundos (só quando mudam).
   useEffect(() => {
     if (!session) return;
     const push = async () => {
@@ -342,10 +515,10 @@ function Shell() {
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden" style={{ background: "var(--bg)" }}>
       <aside
-        className="hidden w-[250px] shrink-0 flex-col border-r px-2.5 py-3 md:flex"
+        className="hidden w-[260px] shrink-0 flex-col border-r px-2.5 py-3 md:flex"
         style={{ borderColor: "var(--border)", background: "var(--surface)" }}
       >
-        <SidebarContent />
+        <Sidebar native={native} />
       </aside>
 
       {mobileSidebarOpen ? (
@@ -358,13 +531,13 @@ function Shell() {
       ) : null}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-[268px] flex-col border-r px-2.5 py-3 transition-transform duration-200 md:hidden",
+          "fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col border-r px-2.5 py-3 transition-transform duration-200 md:hidden",
           mobileSidebarOpen ? "translate-x-0" : "-translate-x-full",
         )}
         style={{ borderColor: "var(--border)", background: "var(--surface)" }}
         aria-hidden={!mobileSidebarOpen}
       >
-        <SidebarContent onNavigate={() => setMobileSidebarOpen(false)} />
+        <Sidebar onNavigate={() => setMobileSidebarOpen(false)} native={native} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -381,65 +554,56 @@ function Shell() {
             <Menu className="h-4 w-4" />
           </button>
           <h1 className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-[-0.01em]">{VIEW_TITLE[view]}</h1>
-          {platform.kind === "desktop" ? (
+          {!native ? (
             <span className="hidden text-[10px] sm:inline" style={{ color: "var(--muted-2)" }}>
-              desktop
+              web
             </span>
           ) : null}
-          <button
-            type="button"
-            onClick={() => setDownloadsOpen(true)}
-            className="btn btn-ghost !p-1.5"
-            aria-label="Baixar apps"
-            title="Baixar apps"
-          >
-            <Download className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={toggleInspector}
-            className="btn btn-ghost !p-1.5"
-            aria-label={inspectorOpen ? "Ocultar inspetor" : "Mostrar inspetor"}
-            aria-pressed={inspectorOpen}
-          >
-            <PanelRight className="h-4 w-4" />
-          </button>
-          {!session ? (
-            <button type="button" onClick={openAuth} className="btn !hidden !text-[11px] sm:!inline-flex">
-              Entrar
+          {view !== "chat" ? (
+            <button type="button" onClick={() => setView("chat")} className="btn btn-ghost !p-1.5" aria-label="Voltar ao chat">
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+          ) : null}
+          {native ? (
+            <button
+              type="button"
+              onClick={toggleInspector}
+              className="btn btn-ghost !p-1.5"
+              aria-label={inspectorOpen ? "Ocultar inspetor" : "Mostrar inspetor"}
+              aria-pressed={inspectorOpen}
+            >
+              <PanelRight className="h-4 w-4" />
             </button>
           ) : null}
         </header>
 
         <main className="relative min-h-0 flex-1 overflow-hidden pb-[calc(56px+env(safe-area-inset-bottom))] md:pb-0">
-          {platform.kind !== "web" && !session ? (
+          {native && !session ? (
             <div className="absolute inset-0 z-30 grid place-items-center p-6" style={{ background: "var(--bg)" }}>
-              <div className="w-full max-w-[340px] rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+              <div
+                className="w-full max-w-[360px] rounded-2xl border p-4"
+                style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+              >
                 <h2 className="text-[15px] font-semibold">Entre para usar o OmniStudio</h2>
                 <p className="mt-1.5 text-[11.5px] leading-relaxed" style={{ color: "var(--muted)" }}>
                   No app instalado a conta é obrigatória: é ela que restaura suas chaves e libera o controle remoto do PC.
                 </p>
-                <button type="button" onClick={openAuth} className="btn mt-3 w-full justify-center">
-                  Entrar ou criar conta
-                </button>
-                <p className="mt-2 text-[10px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
-                  No navegador o acesso continua livre, sem muro de login.
-                </p>
+                <AccountCard />
               </div>
             </div>
           ) : null}
           {view === "chat" ? <ChatView /> : null}
-          {view === "studio" ? <StudioView showCanvas={!inspectorOpen} /> : null}
-          {view === "agent" ? <AgentView platform={platform} /> : null}
+          {view === "studio" && native ? <StudioView showCanvas={!inspectorOpen} /> : null}
+          {view === "agent" && native ? <AgentView platform={platform} /> : null}
           {view === "settings" ? <SettingsView /> : null}
           {view === "credits" ? <CreditsView platform={platform} /> : null}
         </main>
       </div>
 
-      <Inspector />
+      {native ? <Inspector /> : null}
 
       <nav
-        className="fixed bottom-0 left-0 right-0 z-30 grid grid-cols-4 gap-1 border-t px-1 pt-1 md:hidden"
+        className="fixed bottom-0 left-0 right-0 z-30 flex items-stretch gap-1 border-t px-1 pt-1 md:hidden"
         style={{
           borderColor: "var(--border)",
           background: "var(--surface)",
@@ -447,7 +611,7 @@ function Shell() {
         }}
         aria-label="Navegação principal"
       >
-        {NAV.map((item) => {
+        {navFor(native).map((item) => {
           const Icon = item.icon;
           const active = view === item.id;
           return (
@@ -456,12 +620,8 @@ function Shell() {
               type="button"
               onClick={() => setView(item.id)}
               aria-current={active ? "page" : undefined}
-              className="flex flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] transition-colors"
-              style={
-                active
-                  ? { background: "var(--accent-soft)", color: "var(--text)" }
-                  : { color: "var(--muted)" }
-              }
+              className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] transition-colors"
+              style={active ? { background: "var(--accent-soft)", color: "var(--text)" } : { color: "var(--muted)" }}
             >
               <Icon className="h-4 w-4" strokeWidth={1.7} />
               <span className="max-w-full truncate">{item.short}</span>
@@ -471,7 +631,7 @@ function Shell() {
       </nav>
 
       <AuthModal />
-      <DownloadsModal open={downloadsOpen} onClose={() => setDownloadsOpen(false)} />
+      {pairCode ? <PairAuthorize code={pairCode} onClose={() => setPairCode(null)} /> : null}
       {studio ? <span className="sr-only">Estúdio pronto</span> : null}
     </div>
   );

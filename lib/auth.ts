@@ -45,6 +45,11 @@ function resolve(config?: SupabaseConfig | null) {
   };
 }
 
+/** Anon key resolvida (usada por chamadas REST sem sessão, como o pareamento). */
+export function resolveAnonKey(config?: SupabaseConfig | null) {
+  return resolve(config).anonKey;
+}
+
 export function supabaseReady(_config?: SupabaseConfig | null) {
   const { url, anonKey } = resolve(_config);
   return Boolean(url && anonKey);

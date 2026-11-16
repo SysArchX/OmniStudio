@@ -4,6 +4,7 @@
  *
  *   omnistudio --help
  *   omnistudio --login --email voce@exemplo.com --password '...'
+ *   omnistudio --pair             # entra com código OMNI-XXXX aprovado no navegador
  *   omnistudio --watch            # fica online e executa tarefas remotas
  *   omnistudio --run "git status"
  *
@@ -14,7 +15,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
-const VERSION = "1.5.1";
+const VERSION = "1.5.2";
+const WEB_URL = process.env.OMNISTUDIO_WEB_URL || "https://site-18ac632e87d148d6ac36f5819bc6945b.freebuff.page";
 const SUPABASE_URL = process.env.OMNISTUDIO_SUPABASE_URL || "https://xwbpajtyqhzkxvoxnsyp.supabase.co";
 const SUPABASE_ANON_KEY =
   process.env.OMNISTUDIO_SUPABASE_ANON_KEY ||
@@ -30,6 +32,7 @@ function help() {
 Uso:
   omnistudio --help
   omnistudio --login --email <email> --password <senha>
+  omnistudio --pair              # código OMNI-XXXX aprovado no navegador
   omnistudio --watch [--name "PC da sala"]
   omnistudio --run "npm run build"
   omnistudio --status
@@ -70,6 +73,70 @@ function readConfig() {
 function writeConfig(config) {
   mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
   writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), { mode: 0o600 });
+}
+
+function pairingCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let tail = "";
+  for (let index = 0; index < 4; index += 1) {
+    tail += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return `OMNI-${tail}`;
+}
+
+function openBrowser(url) {
+  const command = platform() === "darwin" ? "open" : platform() === "win32" ? "cmd" : "xdg-open";
+  const args = platform() === "win32" ? ["/c", "start", "", url] : [url];
+  try {
+    spawn(command, args, { detached: true, stdio: "ignore" }).unref();
+  } catch {
+    /* sem navegador: o usuário abre a URL na mão */
+  }
+}
+
+async function pairLogin() {
+  const code = pairingCode();
+  const created = await fetch(`${SUPABASE_URL}/rest/v1/device_auth_codes`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify({ code, device_name: `${platform()} · CLI`, status: "pending" }),
+  }).catch(() => null);
+
+  if (!created || !created.ok) {
+    console.error(
+      `Não foi possível criar o código (${created?.status ?? "sem rede"}). Rode o supabase-schema.sql para criar device_auth_codes.`,
+    );
+    process.exit(1);
+  }
+
+  const url = `${WEB_URL}/?pair=${code}`;
+  console.log(`Código: ${code}\nAutorize em: ${url}\nAguardando aprovação...`);
+  openBrowser(url);
+
+  const deadline = Date.now() + 5 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/device_auth_codes?code=eq.${encodeURIComponent(code)}&select=status,access_token,refresh_token,user_email`,
+      { headers: { apikey: SUPABASE_ANON_KEY } },
+    ).catch(() => null);
+    if (!response || !response.ok) continue;
+    const rows = await response.json().catch(() => []);
+    const row = rows[0];
+    if (!row || row.status !== "approved" || !row.access_token) continue;
+    writeConfig({
+      accessToken: row.access_token,
+      refreshToken: row.refresh_token ?? "",
+      email: row.user_email ?? "",
+      deviceId: readConfig()?.deviceId || crypto.randomUUID(),
+      deviceName: readConfig()?.deviceName || `${platform()} · CLI`,
+    });
+    console.log(`Conectado como ${row.user_email ?? "sua conta"}.`);
+    return;
+  }
+
+  console.error("O código expirou sem aprovação. Rode --pair de novo.");
+  process.exit(1);
 }
 
 async function login(email, password) {
@@ -194,6 +261,10 @@ if (args.help || args.h) {
 }
 if (args.version || args.v) {
   console.log(VERSION);
+  process.exit(0);
+}
+if (args.pair) {
+  await pairLogin();
   process.exit(0);
 }
 if (args.login) {

@@ -117,3 +117,36 @@ create policy "own remote sessions" on public.remote_sessions
 drop policy if exists "own remote commands" on public.remote_commands;
 create policy "own remote commands" on public.remote_commands
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Pareamento por código (OMNI-XXXX): o app cria, o navegador logado autoriza.
+create table if not exists public.device_auth_codes (
+  code text primary key,
+  device_name text not null default '',
+  status text not null default 'pending',
+  access_token text,
+  refresh_token text,
+  user_email text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists device_auth_codes_created_at_idx
+  on public.device_auth_codes (created_at desc);
+
+alter table public.device_auth_codes enable row level security;
+
+drop policy if exists "pair create" on public.device_auth_codes;
+create policy "pair create" on public.device_auth_codes
+  for insert to anon, authenticated with check (true);
+
+-- Só códigos recentes são legíveis; o código em si é o segredo de curta duração.
+drop policy if exists "pair read" on public.device_auth_codes;
+create policy "pair read" on public.device_auth_codes
+  for select to anon, authenticated
+  using (created_at > now() - interval '10 minutes');
+
+drop policy if exists "pair approve" on public.device_auth_codes;
+create policy "pair approve" on public.device_auth_codes
+  for update to authenticated using (true) with check (status = 'approved');
+
+-- Limpeza opcional: rode de tempos em tempos para descartar códigos antigos.
+-- delete from public.device_auth_codes where created_at < now() - interval '1 day';

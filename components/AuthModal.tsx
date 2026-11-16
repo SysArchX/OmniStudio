@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-store";
 import { useSettings } from "@/lib/settings-store";
 import { isNativeShell, signInWithPassword, signUpWithPassword } from "@/lib/auth";
 import { Modal } from "./ui";
+import PairingCard from "./PairingCard";
 
 const GoogleIcon = (
   <svg className="h-4 w-4" viewBox="0 0 48 48" aria-hidden="true">
@@ -108,6 +109,8 @@ export default function AuthModal() {
 
         {step === "start" ? (
           <>
+            <PairingCard />
+
             <button
               type="button"
               onClick={() => void google()}

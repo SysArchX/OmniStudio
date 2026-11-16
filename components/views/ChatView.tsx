@@ -9,6 +9,8 @@ import { PROVIDER_LABEL, PROVIDER_ORDER, PROVIDER_MODEL, looksLikeSearchQuery, r
 import type { SearchHit } from "@/lib/ai";
 import { findLinks, gatherContext } from "@/lib/web-search";
 import { cn } from "../ui";
+import Markdown from "../Markdown";
+import { isNativeShell } from "@/lib/auth";
 import type { ChatMessage, ProviderId } from "@/lib/types";
 
 const SUGGESTIONS = [
@@ -139,7 +141,9 @@ export default function ChatView() {
                   </h2>
                 </div>
               ) : (
-                <h2 className="text-[22px] font-semibold tracking-[-0.02em] sm:text-[26px]">O que vamos criar hoje?</h2>
+                <h2 className="text-[22px] font-semibold tracking-[-0.02em] sm:text-[26px]">
+                  {isNativeShell() ? "O que vamos criar hoje?" : "Como posso ajudar hoje?"}
+                </h2>
               )}
               <p className="mt-2 max-w-lg text-[12.5px] leading-relaxed" style={{ color: "var(--muted)" }}>
                 OpenRouter responde primeiro e Groq ou Mistral assumem se ele falhar. A pesquisa web já vem ligada.
@@ -184,7 +188,30 @@ export default function ChatView() {
                   <p className="mb-1 text-[10px] font-medium uppercase tracking-wide" style={{ color: "var(--muted-2)" }}>
                     {message.role === "user" ? "Você" : message.provider ?? "Assistente"}
                   </p>
-                  <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed">{message.content}</p>
+                  {message.role === "assistant" ? (
+                    <div className="break-words">
+                      <Markdown text={message.content} />
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed">{message.content}</p>
+                  )}
+                  {message.role === "assistant" && message.sources?.length ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {message.sources.slice(0, 6).map((source) => (
+                        <a
+                          key={source.url}
+                          href={source.url}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="flex max-w-[220px] items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] transition-colors hover:bg-[var(--surface-2)]"
+                          style={{ borderColor: "var(--border)", color: "var(--muted)" }}
+                          title={source.url}
+                        >
+                          <span className="truncate">{source.title || new URL(source.url).hostname}</span>
+                        </a>
+                      ))}
+                    </div>
+                  ) : null}
                 </article>
               ))}
               {busy ? (
