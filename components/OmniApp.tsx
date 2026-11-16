@@ -7,6 +7,7 @@ import {
   Globe2,
   LogIn,
   LogOut,
+  Mail,
   MessagesSquare,
   Monitor,
   Settings2,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import { SettingsProvider, useSettings } from "@/lib/settings-store";
 import { AuthProvider, useAuth } from "@/lib/auth-store";
+import { sendEmailOtp, verifyEmailOtp } from "@/lib/auth";
 import { detectPlatform, type PlatformInfo } from "@/lib/platform";
 import { PROVIDER_LABEL, PROVIDER_ORDER } from "@/lib/ai";
 import { APP_VERSION, OWNER } from "@/lib/releases";
@@ -43,92 +45,93 @@ const VIEW_META: Record<ViewId, { title: string; subtitle: string }> = {
   credits: { title: "Créditos", subtitle: "Quem construiu e o que está por trás" },
 };
 
-// Google SVG icon (official colors)
 const GoogleIcon = (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    className="h-4 w-4"
-    viewBox="0 0 24 24"
-    fill="currentColor"
-    style={{ width: "1em", height: "1em" }}
-  >
-    <path d="M22.54 5.45a.75.75 0 0 0-1.06-.02L12 14.24l-5.62-3.08a.75.75 0 0 0-1.08.02L3 14.25l7.75 4.25a.75.75 0 0 0 1.08.02l7.74-4.25 5.22 2.86a.75.75 0 0 0 .88-.02l6.42-3.57a.75.75 0 0 0-.1-1.04zM12 3.73a8.27 8.27 0 1 0 0 16.54 8.27 8.27 0 0 0 0-16.54z" />
+  <svg className="h-4 w-4" viewBox="0 0 48 48" aria-hidden="true">
+    <path
+      fill="#EA4335"
+      d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+    />
+    <path
+      fill="#4285F4"
+      d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+    />
+    <path
+      fill="#FBBC05"
+      d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+    />
+    <path
+      fill="#34A853"
+      d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+    />
   </svg>
 );
 
 function Welcome() {
-  const { configured, signIn, continueAsGuest, session } = useAuth();
+  const { signIn, continueAsGuest, adoptSession } = useAuth();
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [step, setStep] = useState<"google" | "email-otp" | "verify">("google");
-  const [otpError, setOtpError] = useState("");
-  const [otpBusy, setOtpBusy] = useState(false);
+  const [step, setStep] = useState<"start" | "email" | "verify">("start");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const message = params.get("error_description") || params.get("error");
     if (message) {
-      setError(decodeURIComponent(message.replace(/\\+/g, " ")));
-      setBusy(false);
+      setError(decodeURIComponent(message.replace(/\+/g, " ")));
       window.history.replaceState(null, "", window.location.pathname);
     }
   }, []);
 
-  const sendOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleGoogle = () => {
     setError("");
-    setOtpError("");
-    if (!email.trim()) {
-      setOtpError("Informe seu e-mail.");
-      return;
-    }
-    setOtpBusy(true);
-    if (!email.trim()) {
-      setOtpError("Informe seu e-mail.");
-      return;
-    }
-    setOtpBusy(true);
-    const result = await fetch(`${window.location.origin}/auth/v1/otp`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ email: email.trim(), create_user: true }),
-    });
-    const data = await result.json().catch(() => ({}));
-    setOtpBusy(false);
-    if (!result.ok) {
-      setOtpError(data.message || "Falha ao enviar código.");
-    } else {
-      setStep("verify");
+    setBusy(true);
+    try {
+      signIn();
+    } catch (err) {
+      setBusy(false);
+      setError(err instanceof Error ? err.message : "Não foi possível abrir o Google.");
     }
   };
 
-  const verifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    if (!code.trim()) {
-      setOtpError("Digite o código de 6 dígitos.");
+  const requestCode = async () => {
+    if (!email.trim()) {
+      setError("Informe seu e-mail.");
       return;
     }
-    setOtpBusy(true);
-    const result = await fetch(`${window.location.origin}/auth/v1/verify`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: email.trim(), token: code.trim(), type: "email" }),
-    });
-    const data = await result.json().catch(() => ({}));
-    setOtpBusy(false);
+    setError("");
+    setBusy(true);
+    const result = await sendEmailOtp(email.trim());
+    setBusy(false);
     if (!result.ok) {
-      setOtpError(data.message || "Código inválido.");
-    } else {
-      setStep("google");
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      window.location.href = "/#/";
+      setError(result.message || "Falha ao enviar o código.");
+      return;
     }
+    setStep("verify");
+  };
+
+  const sendOtp = (event: React.FormEvent) => {
+    event.preventDefault();
+    void requestCode();
+  };
+
+  const verifyOtp = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!code.trim()) {
+      setError("Digite o código de 6 dígitos.");
+      return;
+    }
+    setError("");
+    setBusy(true);
+    const result = await verifyEmailOtp(email.trim(), code.trim());
+    setBusy(false);
+    if (!result.ok || !result.session) {
+      setError(result.message || "Código inválido.");
+      return;
+    }
+    adoptSession(result.session);
+    window.history.replaceState(null, "", window.location.pathname);
   };
 
   return (
@@ -148,95 +151,113 @@ function Welcome() {
         </div>
 
         <div className="space-y-3">
-          {step === "google" && (
-            <>,
+          {error ? (
+            <div
+              className="rounded-lg border px-3 py-2 text-[11px] leading-relaxed"
+              style={{ borderColor: "#7f1d1d", background: "#2a1213", color: "#fca5a5" }}
+              role="alert"
+            >
+              {error}
+            </div>
+          ) : null}
+
+          {step === "start" ? (
+            <>
               <button
                 type="button"
-                onClick={() => setStep("google")}
+                onClick={handleGoogle}
                 disabled={busy}
-                className="btn w-full justify-center flex items-center gap-2"
+                className="flex w-full items-center justify-center gap-2.5 rounded-lg border px-3 py-2.5 text-[12.5px] font-medium transition-colors disabled:opacity-60"
+                style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text)" }}
               >
                 {GoogleIcon}
                 {busy ? "Abrindo o Google..." : "Entrar com Google"}
               </button>
 
-              {error ? (
-                <div className="panel px-3 py-2 text-[11px] leading-relaxed" style={{ color: "#fca5a5" }}>
-                  {error}
-                </div>
-              ) : null}
-
-              {!configured && !error ? (
-                <p className="text-center text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
-                  O Google entra por um projeto Supabase seu. Configuração em Configurações, aba Conta e nuvem.
-                </p>
-              ) : null}
-
-              <div className="pt-1 text-center">
-                <button
-                  type="button"
-                  onClick={() => setStep("email-otp")}
-                  className="text-[10.5px] underline decoration-dotted"
-                  style={{ color: "var(--muted-2)" }}
-                >
-                  Entrar com e-mail
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setError("");
+                  setStep("email");
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-[12.5px] font-medium transition-colors"
+                style={{ borderColor: "var(--border)", color: "var(--text)" }}
+              >
+                <Mail className="h-3.5 w-3.5" />
+                Entrar com e-mail
+              </button>
             </>
-          )}
+          ) : null}
 
-          {step === "email-otp" && (
-            <form id="email-form" onSubmit={sendOtp} className="space-y-3">
-              <div>
-                <label className="text-xs text-gray-400 mb-1.5 block">E-mail</label>
+          {step === "email" ? (
+            <form onSubmit={sendOtp} className="space-y-3">
+              <label className="block text-[11.5px]" style={{ color: "var(--muted)" }}>
+                E-mail
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="digite seu e-mail"
-                  className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-base placeholder-gray-500 focus:outline-none focus:border-yellow-400"
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="voce@exemplo.com"
+                  className="input mt-1.5 w-full !text-base"
                   autoFocus
+                  autoComplete="email"
+                  required
                 />
-              </div>
+              </label>
               <button
                 type="submit"
-                disabled={otpBusy}
-                className="px-3 py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded-lg transition-colors text-sm w-full"
+                disabled={busy}
+                className="w-full rounded-lg px-3 py-2.5 text-[12.5px] font-semibold transition-colors disabled:opacity-60"
+                style={{ background: "var(--accent)", color: "var(--accent-ink)" }}
               >
-                {otpBusy ? "Enviando..." : "Enviar Código de 6 Dígitos"}
+                {busy ? "Enviando..." : "Enviar código de 6 dígitos"}
               </button>
-              {otpError ? (
-                <p className="text-xs text-red-400">{otpError}</p>
-              ) : null}
+              <button
+                type="button"
+                onClick={() => setStep("start")}
+                className="w-full text-center text-[10.5px] underline decoration-dotted"
+                style={{ color: "var(--muted-2)" }}
+              >
+                Voltar
+              </button>
             </form>
-          )}
+          ) : null}
 
-          {step === "verify" && (
-            <form id="verify-form" onSubmit={verifyOtp} className="space-y-3">
-              <div>
-                <label className="text-xs text-gray-400 mb-1.5 block">Código de 6 dígitos</label>
+          {step === "verify" ? (
+            <form onSubmit={verifyOtp} className="space-y-3">
+              <label className="block text-[11.5px]" style={{ color: "var(--muted)" }}>
+                Código enviado para {email}
                 <input
                   type="text"
+                  inputMode="numeric"
                   value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  placeholder="Digite o código de 6 dígitos recebido no email"
+                  onChange={(event) => setCode(event.target.value)}
+                  placeholder="000000"
                   maxLength={6}
-                  className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-base placeholder-gray-500 focus:outline-none focus:border-yellow-400"
+                  className="input mono mt-1.5 w-full !text-base tracking-[0.35em]"
                   autoFocus
+                  autoComplete="one-time-code"
+                  required
                 />
-              </div>
+              </label>
               <button
                 type="submit"
-                disabled={otpBusy}
-                className="px-3 py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded-lg transition-colors text-sm w-full"
+                disabled={busy}
+                className="w-full rounded-lg px-3 py-2.5 text-[12.5px] font-semibold transition-colors disabled:opacity-60"
+                style={{ background: "var(--accent)", color: "var(--accent-ink)" }}
               >
-                {otpBusy ? "Verificando..." : "Confirmar Código e Entrar"}
+                {busy ? "Verificando..." : "Confirmar código e entrar"}
               </button>
-              {otpError ? (
-                <p className="text-xs text-red-400">{otpError}</p>
-              ) : null}
+              <div className="flex items-center justify-between text-[10.5px]" style={{ color: "var(--muted-2)" }}>
+                <button type="button" onClick={() => void requestCode()} className="underline decoration-dotted">
+                  Reenviar código
+                </button>
+                <button type="button" onClick={() => setStep("email")} className="underline decoration-dotted">
+                  Trocar e-mail
+                </button>
+              </div>
             </form>
-          )}
+          ) : null}
 
           <div className="pt-1 text-center">
             <button
@@ -245,7 +266,7 @@ function Welcome() {
               className="text-[10.5px] underline decoration-dotted"
               style={{ color: "var(--muted-2)" }}
             >
-              Entrar sem conta (não sincroniza)
+              Continuar sem conta (não sincroniza)
             </button>
           </div>
         </div>

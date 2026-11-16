@@ -50,27 +50,6 @@ function newConversation(): Conversation {
 
 export default function ChatView() {
 
-  const handleEmailAuthSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const code = (event.target as HTMLFormElement).code?.value.trim();
-    if (!code) return;
-    try {
-      const response = await fetch("/api/email-auth/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      });
-      const data = await response.json();
-      if (!data.ok) {
-        throw new Error(data.error || "Código inválido.");
-      }
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      window.location.href = "/#/";
-    } catch (error) {
-      alert("Falha ao verificar código: " + (error instanceof Error ? error.message : "erro desconhecido"));
-    }
-  };
-
   const createConversation = () => {
     const fresh = newConversation();
     setConversations((prev) => [fresh, ...prev]);
@@ -203,45 +182,6 @@ export default function ChatView() {
       setBusy(false);
       setStatus(null);
     }
-  };
-
-  const handleAuthWithGoogle = async () => {
-    const url = new URL(window.location.href);
-    const params = new URLSearchParams(url.search.slice(1));
-    const error = params.get("error");
-    const code = params.get("code");
-    const session = await handleGoogleCallback(code, error);
-    if (session) {
-      await restoreSession(session);
-    } else if (error) {
-      setStatus(error);
-    }
-  };
-
-  const restoreSession = async (session: any) => {
-    if (session?.access_token) {
-      localStorage.setItem("omnistudio.auth.token", session.access_token);
-      localStorage.setItem("omnistudio.auth.refresh_token", session.refresh_token || "");
-      localStorage.setItem("omnistudio.auth.expires_at", String((Date.now() + (session.expires_in || 3600) * 1000)));
-      localStorage.setItem("omnistudio.auth.user", JSON.stringify(session.user || {}));
-      setStatus("Entrando...")
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      window.location.href = "/#/";
-    }
-  };
-
-  const handleGoogleCallback = async (code: string | null, error: string | null) => {
-    if (error) return null;
-    if (!code) return null;
-    if (!window.location.hostname.includes("freebuff.page")) return null;
-    const response = await fetch("/api/auth/callback", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ code }),
-    });
-    if (!response.ok) return null;
-    const data = await response.json();
-    return data.session ?? null;
   };
 
   const empty = !active?.messages.length;
@@ -427,63 +367,6 @@ export default function ChatView() {
                   >
                     {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUp className="h-3.5 w-3.5" />}
                   </button>
-                </div>
-                <div className="w-full sm:w-auto">
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-2">
-                    <button
-                      type="button"
-                      onClick={handleAuthWithGoogle}
-                      className="btn google-btn w-full justify-center flex items-center gap-2"
-                    >
-                      {/* SVG oficial do Google em 4 cores */}
-                      <svg
-                        className="h-4 w-4"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <polygon points="23 7 16 12 23 17"/>
-                        <rect x="1" y="13" width="23" height="12" rx="2" ry="2"/>
-                        <line x1="1" y1="1" x2="23" y2="1"/>
-                        <line x1="1" y1="23" x2="23" y2="23"/>
-                        <polyline points="1 7 5 7 5 12 9 12 9 17 5 17 5 17 9 23 9"/>
-                      </svg>
-                      Entrar com Google
-                    </button>
-                    <div className="mt-2">
-                      <label className="text-xs text-gray-400 mb-1.5 block">Entrar com e-mail</label>
-                      <form id="email-form" onSubmit={(event) => handleEmailAuthSubmit(event)} className="flex flex-col gap-2">
-                        <div className="flex gap-2">
-                          <input
-                            type="email"
-                            id="email-input"
-                            placeholder="digite seu e-mail"
-                            className="flex-1 px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:border-yellow-400"
-                          />
-                          <button type="submit" className="px-3 py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded-lg transition-colors text-sm">
-                            Enviar código
-                          </button>
-                        </div>
-                        <p className="text-xs text-gray-500">
-                          Você receberá um código de 6 dígitos na sua caixa de entrada. Digite abaixo para entrar.
-                        </p>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            id="code-input"
-                            placeholder="Digite o código de 6 dígitos"
-                            className="flex-1 px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:border-yellow-400"
-                          />
-                          <button type="submit" form="email-form" className="px-3 py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded-lg transition-colors text-sm">
-                            Entrar
-                          </button>
-                        </div>
-                      </form>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>

@@ -78,17 +78,15 @@ export function redirectUri() {
 
 /**
  * OAuth do Google pelo endpoint REST do Supabase, sem SDK.
- * O `apikey` vai como header de sessão e também como parâmetro da URL,
- * porque o servidor de autorização responde "No API key found in request"
- * quando nenhum dos dois está presente.
+ * /auth/v1/authorize não exige apikey; as chamadas REST/Auth seguintes
+ * sempre enviam o header via authHeaders().
  */
 export function signInWithGoogle(config?: SupabaseConfig | null) {
-  const { url, anonKey } = resolve(config);
+  const { url } = resolve(config);
   const params = new URLSearchParams({
     provider: "google",
     redirect_to: redirectUri(),
     flow_type: "implicit",
-    apikey: anonKey,
   });
   window.location.assign(`${url}/auth/v1/authorize?${params.toString()}`);
 }
