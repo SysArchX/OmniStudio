@@ -1,5 +1,5 @@
 /* Service worker leve: casca offline e atualização sem cache eterno. */
-const CACHE = "omnistudio-v150";
+const CACHE = "omnistudio-v152";
 const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/icon.svg"];
 
 self.addEventListener("install", (event) => {

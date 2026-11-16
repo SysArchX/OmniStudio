@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("omniNative", {
   platform: process.platform,
+  authLoopbackUrl: ipcRenderer.sendSync("omni:authLoopbackSync"),
   runCommand: (command) => ipcRenderer.invoke("omni:run", command),
   listDir: (target) => ipcRenderer.invoke("omni:listDir", target),
   readFile: (target) => ipcRenderer.invoke("omni:readFile", target),

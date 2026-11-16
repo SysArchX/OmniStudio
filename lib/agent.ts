@@ -244,6 +244,7 @@ export async function runAgentTask(
         observation = "Plano registrado.";
       } else if (tool === "list_dir") {
         const path = String(action.path ?? "");
+        if (path.includes("..")) throw new Error("Caminho fora da raiz de trabalho.");
         if (bridge) {
           const result = await bridge.listDir(path || ".");
           observation = result.map((entry) => `${entry.isDir ? "[dir]" : "[file]"} ${entry.name}`).join("\n") || "Pasta vazia.";
@@ -253,10 +254,12 @@ export async function runAgentTask(
         }
       } else if (tool === "read_file") {
         const path = String(action.path ?? "");
+        if (path.includes("..")) throw new Error("Caminho fora da raiz de trabalho.");
         const content = bridge ? await bridge.readFile(path) : await readWorkspaceFile(path);
         observation = content.slice(0, 8000);
       } else if (tool === "write_file") {
         const path = String(action.path ?? "");
+        if (path.includes("..")) throw new Error("Caminho fora da raiz de trabalho.");
         const content = String(action.content ?? "");
         if (bridge) await bridge.writeFile(path, content);
         else await writeWorkspaceFile(path, content);

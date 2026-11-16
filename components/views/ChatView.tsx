@@ -24,6 +24,17 @@ function messageId() {
   return crypto.randomUUID();
 }
 
+/** só http(s) viram link; qualquer outra coisa é descartada na renderização. */
+function safeHost(url: string) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "fonte";
+    return parsed.hostname;
+  } catch {
+    return "fonte";
+  }
+}
+
 export default function ChatView() {
   const { settings } = useSettings();
   const { session } = useAuth();
@@ -207,7 +218,7 @@ export default function ChatView() {
                           style={{ borderColor: "var(--border)", color: "var(--muted)" }}
                           title={source.url}
                         >
-                          <span className="truncate">{source.title || new URL(source.url).hostname}</span>
+                          <span className="truncate">{source.title || safeHost(source.url)}</span>
                         </a>
                       ))}
                     </div>

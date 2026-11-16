@@ -1,10 +1,13 @@
 const { app, BrowserWindow, ipcMain, protocol, shell } = require("electron");
 
 const AUTH_SCHEME = "omnistudio";
+const LOOPBACK_PORT = Number(process.env.OMNISTUDIO_AUTH_PORT || 48123);
+let loopbackUrl = `http://127.0.0.1:${LOOPBACK_PORT}/callback`;
 let mainWindow = null;
 let pendingAuthUrl = null;
 const path = require("node:path");
 const fs = require("node:fs");
+const http = require("node:http");
 const { spawn } = require("node:child_process");
 
 const OUT_DIR = path.join(__dirname, "..", "out");
@@ -114,6 +117,44 @@ function handleAuthUrl(url) {
   }
 }
 
+/**
+ * Servidor loopback temporário: o Supabase também pode devolver o login em
+ * http://127.0.0.1:48123/callback. Nada de file:/// em nenhum caminho.
+ */
+function startAuthLoopback() {
+  const server = http.createServer((request, response) => {
+    if (!request.url || !request.url.startsWith("/callback")) {
+      response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      response.end("Not found");
+      return;
+    }
+    const received = `omnistudio://auth/callback${request.url.slice("/callback".length)}`;
+    handleAuthUrl(received);
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end(
+      "<!doctype html><meta charset=\"utf-8\"><title>OmniStudio</title>" +
+        "<body style=\"background:#09090b;color:#fafafa;font:15px system-ui;display:grid;place-items:center;height:100vh;margin:0\">" +
+        "<p>Login concluído. Volte para o OmniStudio.</p></body>",
+    );
+  });
+
+  server.on("error", (error) => {
+    if (error.code === "EADDRINUSE") {
+      loopbackUrl = `http://127.0.0.1:${LOOPBACK_PORT + 1}/callback`;
+      server.listen(LOOPBACK_PORT + 1, "127.0.0.1");
+      return;
+    }
+    console.warn("Loopback de autenticação indisponível:", error.message);
+  });
+
+  server.listen(LOOPBACK_PORT, "127.0.0.1");
+  app.on("before-quit", () => server.close());
+}
+
+ipcMain.on("omni:authLoopbackSync", (event) => {
+  event.returnValue = loopbackUrl;
+});
+
 app.setAsDefaultProtocolClient(AUTH_SCHEME);
 
 const gotLock = app.requestSingleInstanceLock();
@@ -181,7 +222,13 @@ ipcMain.handle("omni:listDir", async (_event, target) => {
   }
 });
 
+function unsafePath(target) {
+  const value = String(target ?? "");
+  return !value || value.includes("..") || value.includes("\0");
+}
+
 ipcMain.handle("omni:readFile", async (_event, target) => {
+  if (unsafePath(target)) return "Caminho não permitido.";
   try {
     const file = path.resolve(String(target));
     const stat = await fs.promises.stat(file);
@@ -193,6 +240,7 @@ ipcMain.handle("omni:readFile", async (_event, target) => {
 });
 
 ipcMain.handle("omni:writeFile", async (_event, target, content) => {
+  if (unsafePath(target)) return false;
   try {
     const file = path.resolve(String(target));
     await fs.promises.writeFile(file, String(content), "utf8");
@@ -204,6 +252,7 @@ ipcMain.handle("omni:writeFile", async (_event, target, content) => {
 
 app.whenReady().then(() => {
   registerProtocol();
+  startAuthLoopback();
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

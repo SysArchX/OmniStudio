@@ -111,9 +111,20 @@ export function isNativeShell() {
   return isCapacitorNative();
 }
 
-/** URI de retorno registrada no Supabase: esquema do app no nativo, origem no navegador. */
+/** Loopback do Electron (127.0.0.1) quando o preload informa a porta. */
+export function electronLoopbackUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  const bridge = (window as unknown as { omniNative?: { authLoopbackUrl?: string } }).omniNative;
+  const value = bridge?.authLoopbackUrl;
+  return value && /^http:\/\/127\.0\.0\.1:\d+\/callback$/.test(value) ? value : null;
+}
+
+/** URI de retorno registrada no Supabase: loopback no Electron, esquema no mobile, origem no navegador. */
 export function redirectUri() {
   if (typeof window === "undefined") return "";
+  if (isCapacitorNative()) return NATIVE_CALLBACK;
+  const loopback = electronLoopbackUrl();
+  if (loopback) return loopback;
   if (isNativeShell()) return NATIVE_CALLBACK;
   return `${window.location.origin}/`;
 }
@@ -147,7 +158,7 @@ export async function signInWithGoogle(config?: SupabaseConfig | null) {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: NATIVE_CALLBACK,
+        redirectTo: redirectUri(),
         skipBrowserRedirect: true,
         queryParams: { prompt: "select_account" },
       },
