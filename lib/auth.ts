@@ -13,9 +13,30 @@ export const SUPABASE_ANON_KEY =
 export const DEFAULT_SUPABASE_URL = SUPABASE_URL;
 export const DEFAULT_SUPABASE_ANON_KEY = SUPABASE_ANON_KEY;
 
-/** Resolve credenciais ignorando strings vazias salvas em sessões anteriores. */
+/**
+ * Normaliza a URL do projeto: descarta caminho colado junto
+ * (ex.: "https://xxx.supabase.co/rest/v1") e barras sobrando. Sem isso o
+ * PostgREST devolve PGRST125 "Invalid path specified in request URL".
+ */
+function normalizeUrl(raw?: string | null) {
+  const value = raw?.trim();
+  if (!value) return SUPABASE_URL;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return SUPABASE_URL;
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return SUPABASE_URL;
+  }
+}
+
+function tablePath(path: string) {
+  return path.replace(/^\/+|\/+$/g, "");
+}
+
+/** Resolve credenciais ignorando strings vazias ou inválidas de sessões anteriores. */
 function resolve(config?: SupabaseConfig | null) {
-  const url = config?.url?.trim() ? config.url.trim().replace(/\/$/, "") : SUPABASE_URL;
+  const url = normalizeUrl(config?.url);
   const anonKey = config?.anonKey?.trim() ? config.anonKey.trim() : SUPABASE_ANON_KEY;
   return { url, anonKey };
 }
@@ -245,7 +266,7 @@ export async function restSelect(
   path: string,
   query = "select=*",
 ): Promise<unknown> {
-  const response = await fetch(`${baseUrl(config)}/rest/v1/${path}?${query}`, {
+  const response = await fetch(`${baseUrl(config)}/rest/v1/${tablePath(path)}?${query}`, {
     method: "GET",
     headers: authHeaders(config, session),
   });
@@ -259,7 +280,7 @@ export async function restUpsert(
   path: string,
   body: Record<string, unknown> | Array<Record<string, unknown>>,
 ) {
-  const response = await fetch(`${baseUrl(config)}/rest/v1/${path}`, {
+  const response = await fetch(`${baseUrl(config)}/rest/v1/${tablePath(path)}`, {
     method: "POST",
     headers: {
       ...authHeaders(config, session),
@@ -277,7 +298,7 @@ export async function restDelete(
   path: string,
   query: string,
 ) {
-  const response = await fetch(`${baseUrl(config)}/rest/v1/${path}?${query}`, {
+  const response = await fetch(`${baseUrl(config)}/rest/v1/${tablePath(path)}?${query}`, {
     method: "DELETE",
     headers: authHeaders(config, session),
   });
