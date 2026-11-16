@@ -24,15 +24,19 @@ export interface ComposioToolPreview {
   description: string;
 }
 
+/**
+ * A chave salva em Configurações (localStorage) tem prioridade: o app é estático,
+ * então qualquer variável NEXT_PUBLIC_* é embutida no bundle público.
+ */
 export function getComposioKey(): string {
   if (typeof window === "undefined") return "";
-  const fromEnv = process.env.NEXT_PUBLIC_COMPOSIO_API_KEY?.trim();
-  if (fromEnv) return fromEnv;
   try {
-    return window.localStorage.getItem(KEY_STORAGE)?.trim() ?? "";
+    const stored = window.localStorage.getItem(KEY_STORAGE)?.trim();
+    if (stored) return stored;
   } catch {
-    return "";
+    /* armazenamento indisponível */
   }
+  return process.env.NEXT_PUBLIC_COMPOSIO_API_KEY?.trim() ?? "";
 }
 
 export function setComposioKey(key: string) {

@@ -119,6 +119,18 @@ export async function signInWithGoogle(config?: SupabaseConfig | null) {
   if (error) throw new Error(error.message);
 }
 
+/** Traduz os erros de e-mail do Supabase para algo acionável. */
+function otpError(message: string): string {
+  const text = message.toLowerCase();
+  if (text.includes("rate limit") || text.includes("over_email_send")) {
+    return "Limite de envios atingido: o SMTP padrão do Supabase libera pouquíssimos e-mails por hora. Configure um SMTP próprio (Project Settings → Authentication → SMTP Settings) para enviar de verdade.";
+  }
+  if (text.includes("not authorized") || text.includes("email address not authorized")) {
+    return "O remetente padrão do Supabase só entrega para e-mails da equipe do projeto. Configure um SMTP próprio para enviar a qualquer endereço.";
+  }
+  return message;
+}
+
 export async function sendEmailOtp(
   email: string,
   config?: SupabaseConfig | null,
@@ -128,8 +140,54 @@ export async function sendEmailOtp(
     email: email.trim(),
     options: { shouldCreateUser: true, emailRedirectTo: redirectUri() },
   });
-  if (error) return { ok: false, message: error.message };
+  if (error) return { ok: false, message: otpError(error.message) };
   return { ok: true, message: "Código de 6 dígitos enviado para o e-mail." };
+}
+
+function passwordError(message: string): string {
+  const text = message.toLowerCase();
+  if (text.includes("invalid login credentials")) return "E-mail ou senha incorretos.";
+  if (text.includes("email not confirmed")) return "Conta ainda não confirmada. No Supabase, desative \"Confirm email\" ou use o login com Google.";
+  if (text.includes("already registered")) return "Essa conta já existe. Use \"Entrar\".";
+  if (text.includes("password should be")) return "A senha precisa de pelo menos 6 caracteres.";
+  return message;
+}
+
+/** Login por e-mail e senha: não envia nenhum e-mail, então funciona sem SMTP. */
+export async function signInWithPassword(
+  email: string,
+  password: string,
+  config?: SupabaseConfig | null,
+): Promise<{ ok: boolean; session?: AuthSession; message: string }> {
+  const supabase = getSupabase(config);
+  const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+  if (error) return { ok: false, message: passwordError(error.message) };
+  const session = toAuthSession(data.session);
+  if (!session) return { ok: false, message: "Não foi possível abrir a sessão." };
+  saveSession(session);
+  return { ok: true, session, message: "Login realizado." };
+}
+
+/**
+ * Cria a conta com senha. Se \"Confirm email\" estiver desligado no Supabase,
+ * a sessão volta na hora e nenhum e-mail é enviado.
+ */
+export async function signUpWithPassword(
+  email: string,
+  password: string,
+  config?: SupabaseConfig | null,
+): Promise<{ ok: boolean; session?: AuthSession; message: string }> {
+  const supabase = getSupabase(config);
+  const { data, error } = await supabase.auth.signUp({
+    email: email.trim(),
+    password,
+    options: { emailRedirectTo: redirectUri() },
+  });
+  if (error) return { ok: false, message: passwordError(error.message) };
+  const session = toAuthSession(data.session);
+  if (!session) return { ok: false, message: "Conta criada. Desative \"Confirm email\" no Supabase para entrar direto, ou confirme pelo e-mail." };
+  saveSession(session);
+  return { ok: true, session, message: "Conta criada e sessão iniciada." };
 }
 
 export async function verifyEmailOtp(
@@ -143,7 +201,7 @@ export async function verifyEmailOtp(
     token: token.trim(),
     type: "email",
   });
-  if (error) return { ok: false, message: error.message };
+  if (error) return { ok: false, message: otpError(error.message) };
   const session = toAuthSession(data.session);
   if (!session) return { ok: false, message: "Não foi possível abrir a sessão." };
   saveSession(session);

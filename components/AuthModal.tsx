@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Mail } from "lucide-react";
+import { KeyRound, Loader2, Mail } from "lucide-react";
 import { useAuth } from "@/lib/auth-store";
 import { useSettings } from "@/lib/settings-store";
-import { sendEmailOtp, verifyEmailOtp } from "@/lib/auth";
+import {
+  sendEmailOtp,
+  signInWithPassword,
+  signUpWithPassword,
+  verifyEmailOtp,
+} from "@/lib/auth";
 import { Modal } from "./ui";
 
 const GoogleIcon = (
@@ -28,11 +33,15 @@ const GoogleIcon = (
   </svg>
 );
 
+type Step = "start" | "otp-email" | "otp-verify" | "password";
+
 export default function AuthModal() {
   const { authOpen, closeAuth, signIn, adoptSession } = useAuth();
   const { settings } = useSettings();
-  const [step, setStep] = useState<"start" | "email" | "verify">("start");
+  const [step, setStep] = useState<Step>("start");
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -42,6 +51,8 @@ export default function AuthModal() {
       setStep("start");
       setError("");
       setBusy(false);
+      setPassword("");
+      setCode("");
     }
   }, [authOpen]);
 
@@ -69,7 +80,7 @@ export default function AuthModal() {
       setError(result.message);
       return;
     }
-    setStep("verify");
+    setStep("otp-verify");
   };
 
   const confirmCode = async () => {
@@ -80,6 +91,26 @@ export default function AuthModal() {
     setError("");
     setBusy(true);
     const result = await verifyEmailOtp(email.trim(), code.trim(), settings.supabase);
+    setBusy(false);
+    if (!result.ok || !result.session) {
+      setError(result.message);
+      return;
+    }
+    adoptSession(result.session);
+    closeAuth();
+  };
+
+  const submitPassword = async () => {
+    if (!email.trim() || !password) {
+      setError("Informe e-mail e senha.");
+      return;
+    }
+    setError("");
+    setBusy(true);
+    const result =
+      mode === "signin"
+        ? await signInWithPassword(email.trim(), password, settings.supabase)
+        : await signUpWithPassword(email.trim(), password, settings.supabase);
     setBusy(false);
     if (!result.ok || !result.session) {
       setError(result.message);
@@ -125,18 +156,35 @@ export default function AuthModal() {
               type="button"
               onClick={() => {
                 setError("");
-                setStep("email");
+                setMode("signin");
+                setStep("password");
               }}
               className="flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-[12.5px] font-medium transition-colors"
-              style={{ borderColor: "var(--border)", color: "var(--text)" }}
+              style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text)" }}
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+              Entrar com e-mail e senha
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setError("");
+                setStep("otp-email");
+              }}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-[12.5px] font-medium transition-colors"
+              style={{ borderColor: "var(--border)", color: "var(--muted)" }}
             >
               <Mail className="h-3.5 w-3.5" />
-              Entrar com e-mail
+              Receber código por e-mail
             </button>
+            <p className="text-center text-[10px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+              O código depende de SMTP configurado no Supabase. E-mail e senha e Google não.
+            </p>
           </>
         ) : null}
 
-        {step === "email" ? (
+        {step === "otp-email" ? (
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -167,7 +215,7 @@ export default function AuthModal() {
           </form>
         ) : null}
 
-        {step === "verify" ? (
+        {step === "otp-verify" ? (
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -198,8 +246,64 @@ export default function AuthModal() {
               <button type="button" onClick={() => void requestCode()} className="underline decoration-dotted">
                 Reenviar código
               </button>
-              <button type="button" onClick={() => setStep("email")} className="underline decoration-dotted">
+              <button type="button" onClick={() => setStep("otp-email")} className="underline decoration-dotted">
                 Trocar e-mail
+              </button>
+            </div>
+          </form>
+        ) : null}
+
+        {step === "password" ? (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitPassword();
+            }}
+            className="space-y-2.5"
+          >
+            <label className="block text-[11.5px]" style={{ color: "var(--muted)" }}>
+              E-mail
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="voce@exemplo.com"
+                className="input mt-1.5 !text-base sm:!text-[13px]"
+                autoFocus
+                autoComplete="email"
+                required
+              />
+            </label>
+            <label className="block text-[11.5px]" style={{ color: "var(--muted)" }}>
+              Senha
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="mínimo 6 caracteres"
+                className="input mt-1.5 !text-base sm:!text-[13px]"
+                autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                minLength={6}
+                required
+              />
+            </label>
+            <button type="submit" disabled={busy} className="btn btn-primary w-full disabled:opacity-60">
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              {mode === "signin" ? "Entrar" : "Criar conta"}
+            </button>
+            <div className="flex items-center justify-between text-[10.5px]" style={{ color: "var(--muted-2)" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setError("");
+                  setMode((prev) => (prev === "signin" ? "signup" : "signin"));
+                }}
+                className="underline decoration-dotted"
+              >
+                {mode === "signin" ? "Criar uma conta" : "Já tenho conta"}
+              </button>
+              <button type="button" onClick={() => setStep("start")} className="underline decoration-dotted">
+                Outras opções
               </button>
             </div>
           </form>
