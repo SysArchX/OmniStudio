@@ -4,7 +4,8 @@ export const NATIVE_CALLBACK = "omnistudio://auth/callback";
 
 const SESSION_KEY = "omnistudio.session.v1";
 
-export const DEFAULT_SUPABASE_URL = "https://supabase.co";
+export const DEFAULT_SUPABASE_URL = "https://xwbpajtyqhzkxvoxnsyp.supabase.co";
+
 export const DEFAULT_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3YnBhanR5cWh6a3h2b3huc3lwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ3Njk1MjYsImV4cCI6MjExMDM0NTUyNn0.PQmxqo34NAox3lEI4KRoAvP5MZ_UCzOxae4S6uRQ_Q4";
 
 // Credenciais padrão de fallback - usadas quando o usuário não configurou seu projeto
