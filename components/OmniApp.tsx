@@ -6,6 +6,7 @@ import {
   Clapperboard,
   Globe2,
   LogIn,
+  LogOut,
   MessagesSquare,
   Monitor,
   Settings2,
@@ -259,7 +260,7 @@ function Welcome() {
 
 function Shell() {
   const { settings } = useSettings();
-  const { session, guest, ready } = useAuth();
+  const { session, guest, ready, signOut } = useAuth();
   const [view, setView] = useState<ViewId>("chat");
   const [platform, setPlatform] = useState<PlatformInfo>({
     kind: "web",
@@ -280,68 +281,50 @@ function Shell() {
 
   const configured = PROVIDER_ORDER.filter((provider) => settings.keys[provider]?.trim()).length;
 
-  // Detect platform for mobile layout
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-
   return (
     <div className="h-[100dvh] w-full overflow-hidden" style={{ background: "var(--bg)" }}>
-      <aside
-        className={isMobile ? "hidden md:flex" : "flex w-[196px] shrink-0 flex-col border-r px-2.5 py-3"}
-        style={{ borderColor: "var(--border)", background: "var(--surface)" }}
-      >
-        <div className="mb-4 flex items-center gap-2.5 px-1.5">
-          <div
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[12px] font-semibold"
-            style={{ background: "var(--accent)", color: "var(--accent-ink)" }}
-          >
-            O
-          </div>
-          <span className="truncate text-[13px] font-semibold tracking-[-0.01em]">OmniStudio</span>
-        </div>
-
-        <nav className={isMobile ? "flex md:hidden flex-col" : "flex flex-1 flex-col gap-0.5"}>
-          {NAV.map((item) => {
-            const Icon = item.icon;
-            const active = view === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setView(item.id)}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12.5px] transition-colors",
-                  active ? "font-medium" : "hover:bg-[var(--surface-2)]",
-                )}
-                style={{
-                  active
-                    ? { background: "var(--surface-2)", color: "var(--text)" }
-                    : { color: "var(--muted)" },
-                }}
-              >
-                <Icon className="h-4 w-4 shrink-0" strokeWidth={1.7} />
-                <span className="truncate">{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
-
-        {isMobile ? (
-          <div className="mt-8 border-t px-1.5 pt-3" style={{ borderColor: "var(--border)" }}>
-            <button
-              type="button"
-              onClick={() => void signOut()}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--surface-2)]"
-              style={{ color: "var(--text)" }}
+      <div className="flex h-full min-h-0">
+        <aside
+          className="hidden w-[196px] shrink-0 flex-col border-r px-2.5 py-3 md:flex"
+          style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+        >
+          <div className="mb-4 flex items-center gap-2.5 px-1.5">
+            <div
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[12px] font-semibold"
+              style={{ background: "var(--accent)", color: "var(--accent-ink)" }}
             >
-              <LogOut className="h-3.5 w-3.5" />
-              <span className="text-[11px] font-medium">Sair da Conta</span>
-            </button>
-            <p className="mt-2.5 text-[10px]" style={{ color: "var(--muted-2)" }}>
-              OmniStudio v{APP_VERSION} · {OWNER}
-            </p>
+              O
+            </div>
+            <span className="truncate text-[13px] font-semibold tracking-[-0.01em]">OmniStudio</span>
           </div>
-        ) : (
+
+          <nav className="flex flex-1 flex-col gap-0.5">
+            {NAV.map((item) => {
+              const Icon = item.icon;
+              const active = view === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setView(item.id)}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12.5px] transition-colors",
+                    active ? "font-medium" : "hover:bg-[var(--surface-2)]",
+                  )}
+                  style={
+                    active
+                      ? { background: "var(--surface-2)", color: "var(--text)" }
+                      : { color: "var(--muted)" }
+                  }
+                >
+                  <Icon className="h-4 w-4 shrink-0" strokeWidth={1.7} />
+                  <span className="truncate">{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+
           <div className="mt-3 border-t px-1.5 pt-3" style={{ borderColor: "var(--border)" }}>
             <button
               type="button"
@@ -356,99 +339,105 @@ function Shell() {
               OmniStudio v{APP_VERSION} · {OWNER}
             </p>
           </div>
-        )}
-      </aside>
+        </aside>
 
-      <div className={isMobile ? "flex md:hidden fixed bottom-0 left-0 right-0 z-50" : "flex min-w-0 flex-1 flex-col"}>
-        {isMobile && (
-          <nav className="flex flex-col items-center gap-1.5 p-2" style={{ background: "var(--surface)", borderTop: "1px solid var(--border)", paddingBottom: "env(safe-area-inset-bottom)" }}>
-            {NAV.map((item) => {
-              const Icon = item.icon;
-              const active = view === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setView(item.id)}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "flex-1 items-center justify-center rounded-lg px-2 py-1.5 transition-colors text-[10px]",
-                    active ? "font-medium bg-[var(--accent)] text-[var(--accent-ink)]" : "hover:bg-[var(--surface-2)]",
-                  )}
-                >
-                  <Icon className="h-4 w-4" strokeWidth={1.7} />
-                  <span className="truncate">{item.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        )}
-
-        <div className={!isMobile ? "flex h-[54px] shrink-0 items-center justify-between gap-4 border-b px-5" : ""}>
-          {!isMobile && (
-            <header
-              className="glass z-30 flex h-[54px] shrink-0 items-center justify-between gap-4 border-b px-5"
-              style={{ borderColor: "var(--border)" }}
-            >
-              <div className="min-w-0">
-                <h1 className="truncate text-[13px] font-semibold tracking-[-0.01em]">{VIEW_META[view].title}</h1>
-                <p className="truncate text-[11px]" style={{ color: "var(--muted)" }}>
-                  {VIEW_META[view].subtitle}
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div
-                  className="hidden items-center gap-2 rounded-full border px-2.5 py-1 text-[10px] sm:flex"
-                  style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--muted)" }}
-                  title={configured ? `${configured} provedor(es) com chave` : "Nenhuma chave: cérebro local"}
-                >
-                  {PROVIDER_ORDER.map((provider) => (
-                    <span key={provider} className="flex items-center gap-1">
-                      <span
-                        className="inline-block h-1.5 w-1.5 rounded-full"
-                        style={{ background: settings.keys[provider]?.trim() ? "#4ade80" : "#3f3f46" }}
-                      />
-                      {PROVIDER_LABEL[provider]}
-                    </span>
-                  ))}
-                </div>
-
-                <div
-                  className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px]"
-                  style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--muted)" }}
-                >
-                  {platform.kind === "desktop" ? (
-                    <Monitor className="h-3 w-3" />
-                  ) : platform.kind === "android" ? (
-                    <Smartphone className="h-3 w-3" />
-                  ) : (
-                    <Globe2 className="h-3 w-3" />
-                  )}
-                  {platform.label}
-                </div>
-              </div>
-            </header>
-          )}
-        </div>
-
-        <main className={isMobile ? "min-h-0 flex-1" : "min-h-0 flex-1">
-          {isMobile ? "" : "<main className='min-h-0 flex-1'>"}
-          <motion.div
-            key={view}
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
-            className={isMobile ? "h-full min-h-0" : "h-full min-h-0"}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header
+            className="glass z-30 flex h-[54px] shrink-0 items-center justify-between gap-4 border-b px-4 md:px-5"
+            style={{ borderColor: "var(--border)" }}
           >
-            {view === "chat" ? <ChatView /> : null}
-            {view === "studio" ? <StudioView /> : null}
-            {view === "agent" ? <AgentView platform={platform} /> : null}
-            {view === "settings" ? <SettingsView /> : null}
-            {view === "credits" ? <CreditsView platform={platform} /> : null}
-          </motion.div>
-        </main>
+            <div className="min-w-0">
+              <h1 className="truncate text-[13px] font-semibold tracking-[-0.01em]">{VIEW_META[view].title}</h1>
+              <p className="truncate text-[11px]" style={{ color: "var(--muted)" }}>
+                {VIEW_META[view].subtitle}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div
+                className="hidden items-center gap-2 rounded-full border px-2.5 py-1 text-[10px] sm:flex"
+                style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--muted)" }}
+                title={configured ? `${configured} provedor(es) com chave` : "Nenhuma chave: cérebro local"}
+              >
+                {PROVIDER_ORDER.map((provider) => (
+                  <span key={provider} className="flex items-center gap-1">
+                    <span
+                      className="inline-block h-1.5 w-1.5 rounded-full"
+                      style={{ background: settings.keys[provider]?.trim() ? "#4ade80" : "#3f3f46" }}
+                    />
+                    {PROVIDER_LABEL[provider]}
+                  </span>
+                ))}
+              </div>
+
+              <div
+                className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px]"
+                style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--muted)" }}
+              >
+                {platform.kind === "desktop" ? (
+                  <Monitor className="h-3 w-3" />
+                ) : platform.kind === "android" ? (
+                  <Smartphone className="h-3 w-3" />
+                ) : (
+                  <Globe2 className="h-3 w-3" />
+                )}
+                {platform.label}
+              </div>
+            </div>
+          </header>
+
+          <main className="min-h-0 flex-1 overflow-hidden pb-[calc(58px+env(safe-area-inset-bottom))] md:pb-0">
+            <motion.div
+              key={view}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+              className="h-full min-h-0"
+            >
+              {view === "chat" ? <ChatView /> : null}
+              {view === "studio" ? <StudioView /> : null}
+              {view === "agent" ? <AgentView platform={platform} /> : null}
+              {view === "settings" ? <SettingsView /> : null}
+              {view === "credits" ? <CreditsView platform={platform} /> : null}
+            </motion.div>
+          </main>
+        </div>
       </div>
+
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-50 grid grid-cols-5 gap-1 border-t px-1 pt-1 md:hidden"
+        style={{
+          borderColor: "var(--border)",
+          background: "var(--surface)",
+          paddingBottom: "calc(4px + env(safe-area-inset-bottom))",
+        }}
+        aria-label="Navegação principal"
+      >
+        {NAV.map((item) => {
+          const Icon = item.icon;
+          const active = view === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setView(item.id)}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "flex flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] transition-colors",
+                active ? "font-medium" : "",
+              )}
+              style={
+                active
+                  ? { background: "var(--accent-soft)", color: "var(--text)" }
+                  : { color: "var(--muted)" }
+              }
+            >
+              <Icon className="h-4 w-4" strokeWidth={1.7} />
+              <span className="max-w-full truncate">{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }

@@ -435,7 +435,7 @@ export default function ChatView() {
                       onClick={handleAuthWithGoogle}
                       className="btn google-btn w-full justify-center flex items-center gap-2"
                     >
-                      <!-- SVG oficial Google 4 cores -->
+                      {/* SVG oficial do Google em 4 cores */}
                       <svg
                         className="h-4 w-4"
                         viewBox="0 0 24 24"

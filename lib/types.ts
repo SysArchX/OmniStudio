@@ -73,7 +73,8 @@ export type EnvId =
   | "deep_ocean"
   | "urban_storm"
   | "arctic_snow"
-  | "minimal_studio";
+  | "minimal_studio"
+  | "escritorio_tech";
 
 export type AnimId =
   | "running_panic"
