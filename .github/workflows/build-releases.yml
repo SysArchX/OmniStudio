@@ -53,7 +53,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y fakeroot dpkg-dev rpm
-          npx electron-builder --linux deb --publish never
+          npx electron-builder --linux deb --x64 --publish never
       - name: Publicar artefato
         run: |
           cp release/*.deb OmniStudio.deb
@@ -79,7 +79,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y fakeroot dpkg-dev rpm
-          npx electron-builder --linux pacman --publish never
+          npx electron-builder --linux pacman --x64 --publish never
       - name: Publicar artefato
         run: |
           cp release/*.pacman OmniStudio.pacman
@@ -163,7 +163,7 @@ jobs:
       - run: npm run build
       - name: Sincronizar Capacitor iOS
         run: |
-          npx cap add ios || true
+          npx cap add ios
           npx cap sync ios
       - name: Compilar sem assinatura
         env:

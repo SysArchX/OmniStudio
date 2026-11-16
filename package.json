@@ -45,7 +45,8 @@
     "electron": "^38.0.0",
     "electron-builder": "^26.0.0",
     "tailwindcss": "^4.3.5",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "@capacitor/ios": "^7.0.0"
   },
   "build": {
     "appId": "com.sysarchx.omnistudio",
@@ -71,7 +72,8 @@
           ]
         }
       ],
-      "artifactName": "OmniStudio-Setup.${ext}"
+      "artifactName": "OmniStudio-Setup.${ext}",
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
@@ -84,27 +86,11 @@
       "language": "1046"
     },
     "linux": {
-      "target": [
-        {
-          "target": "deb",
-          "arch": [
-            "amd64"
-          ]
-        },
-        {
-          "target": "pacman",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
       "category": "Development;AudioVideo;Graphics",
       "artifactName": "OmniStudio.${ext}",
-      "desktop": {
-        "Name": "OmniStudio",
-        "Comment": "Chat, estúdio de vídeo e modo agente",
-        "Categories": "Development;AudioVideo;Graphics;"
-      }
+      "icon": "build/icon.png",
+      "maintainer": "SysArchX <sysarchx@users.noreply.github.com>",
+      "synopsis": "Chat, estúdio de vídeo 2D e modo agente"
     }
   }
 }
