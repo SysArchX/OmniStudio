@@ -164,6 +164,9 @@ function friendly(error: unknown) {
 /** Groq, depois OpenRouter, depois GitHub Models. Sem chave, cérebro local. */
 export async function runBrain(messages: BrainMessage[], config: BrainConfig): Promise<BrainResult> {
   const attempts: Array<{ provider: ProviderId; ok: boolean; detail?: string }> = [];
+  const withSystem: BrainMessage[] = messages.some((message) => message.role === "system")
+    ? messages
+    : [{ role: "system", content: SYSTEM_PROMPT }, ...messages];
   const lastUser = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
 
   const order = config.preferred
@@ -174,7 +177,7 @@ export async function runBrain(messages: BrainMessage[], config: BrainConfig): P
     const key = config.keys[provider]?.trim();
     if (!key) continue;
     try {
-      const text = await callProvider(provider, messages, key);
+      const text = await callProvider(provider, withSystem, key);
       attempts.push({ provider, ok: true });
       return { text, provider, attempts };
     } catch (error) {
@@ -191,6 +194,25 @@ export interface ProviderTestResult {
   ok: boolean;
   status: "connected" | "limit" | "auth" | "network" | "error" | "idle";
   message: string;
+}
+
+/** Persona e regras de estilo enviadas em toda conversa. */
+export const SYSTEM_PROMPT = [
+  "Você é o OmniStudio, assistente em português do Brasil.",
+  "Fale como uma pessoa: direto, caloroso e sem tom de manual.",
+  "Responda exatamente o que foi pedido, no tamanho necessário. Um cumprimento recebe um cumprimento curto de volta, nunca um plano de ação.",
+  "Nunca use o molde \"Diga o objetivo / o que já existe / o que impede de terminar\".",
+  "Se a mensagem trouxer um bloco \"Contexto de pesquisa\", use apenas o que for pertinente à pergunta. Se nada servir, ignore o bloco e responda pelo seu conhecimento, sem listar fontes.",
+  "Tabelas só quando houver dados para comparar; evite enfeite e excesso de emoji.",
+  "Código sempre em bloco com a linguagem marcada.",
+].join("\n");
+
+/** Atalhos que não valem uma pesquisa na web (cumprimentos, agradecimentos, ok). */
+export function looksLikeSearchQuery(prompt: string) {
+  const text = prompt.trim().toLowerCase();
+  if (text.length < 12) return false;
+  if (/^(oi|ola|olá|opa|eae|e aí|bom dia|boa tarde|boa noite|tudo bem|tudo bom|blz|valeu|obrigad|ok|okay|sim|nao|não|haha|kkk)/.test(text)) return false;
+  return /\?|(quem|qual|quais|quando|onde|como|quanto|quantos|quantas|por que|porque|o que|pesquis|noticia|notícia|preço|preco|versão|versao|documenta|lanç|lançamento|hoje|agora)/.test(text);
 }
 
 export async function testProvider(provider: ProviderId, key: string): Promise<ProviderTestResult> {
@@ -331,19 +353,31 @@ function topicOf(prompt: string) {
   return words.slice(0, 6).join(" ") || "seu projeto";
 }
 
-/** Resposta estruturada em pt-BR, sem rede. Não é um modelo: deixa o modo local explícito. */
+const GREETING = /^(oi+|ol[áa]|opa|eae|e a[íi]|bom dia|boa tarde|boa noite|tudo bem|tudo bom|beleza|blz)/i;
+
+const GREETING_REPLIES = [
+  "Oi! Tudo certo por aqui. No que você quer mexer hoje?",
+  "Olá! Estou pronto. Me diz o que você quer fazer que eu já começo.",
+  "Oi, tudo bem? Manda a tarefa — código, texto, pesquisa ou uma ideia para destravar.",
+];
+
+/**
+ * Resposta sem modelo. Curta e honesta: cumprimento recebe cumprimento,
+ * pedido recebe uma pergunta objetiva em vez de um formulário de três etapas.
+ */
 export function localAnswer(prompt: string): string {
-  const topic = topicOf(prompt);
+  const text = prompt.trim();
+  if (GREETING.test(text) && text.length <= 24) {
+    return GREETING_REPLIES[text.length % GREETING_REPLIES.length];
+  }
+  if (/^(valeu|obrigad|obrigado|brigad|thanks)/i.test(text)) {
+    return "De nada! Se precisar de mais alguma coisa, é só chamar.";
+  }
   return [
-    `Sobre ${topic}`,
+    "Ainda estou sem chave de modelo, então não consigo gerar texto de verdade — o que eu faço aqui é organizar o pedido.",
     "",
-    "Estou no modo local, então organizo o raciocínio em vez de inventar detalhes. Ative uma chave em Configurações para respostas geradas por modelo.",
+    "Para eu ser útil agora: qual é o resultado final que você quer e onde ele vai rodar?",
     "",
-    "Próximo passo",
-    "1. Diga o objetivo em uma frase.",
-    "2. Diga o que já existe hoje (arquivo, ferramenta, prazo).",
-    "3. Diga o que impede de terminar.",
-    "",
-    "Com essas três respostas eu monto o plano certo.",
+    "Assim que você colar uma chave em Configurações (Groq ou OpenRouter), eu respondo normalmente.",
   ].join("\n");
 }

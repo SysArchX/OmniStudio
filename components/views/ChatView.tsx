@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Globe, Loader2, MessageSquarePlus, Sparkles } from "lucide-react";
 import { useSettings } from "@/lib/settings-store";
 import { useWorkspace } from "@/lib/workspace-store";
-import { PROVIDER_LABEL, PROVIDER_ORDER, PROVIDER_MODEL, researchBlock, runBrain } from "@/lib/ai";
+import { PROVIDER_LABEL, PROVIDER_ORDER, PROVIDER_MODEL, looksLikeSearchQuery, researchBlock, runBrain } from "@/lib/ai";
+import type { SearchHit } from "@/lib/ai";
 import { findLinks, gatherContext } from "@/lib/web-search";
 import { cn } from "../ui";
 import type { ChatMessage, ProviderId } from "@/lib/types";
@@ -63,11 +64,16 @@ export default function ChatView() {
 
     try {
       let context = "";
-      if (webEnabled || links.length) {
+      let found: SearchHit[] = [];
+      const shouldSearch = links.length > 0 || (webEnabled && looksLikeSearchQuery(prompt));
+      if (shouldSearch) {
         setStatus(links.length ? "Lendo o link..." : "Pesquisando na web...");
         const bundle = await gatherContext(prompt);
-        setSources(bundle.hits);
-        context = researchBlock(prompt, bundle.hits, bundle.page);
+        if (bundle.hits.length || bundle.page) {
+          found = bundle.hits;
+          setSources(bundle.hits);
+          context = researchBlock(prompt, bundle.hits, bundle.page);
+        }
       }
 
       setStatus("Consultando provedores...");
@@ -81,7 +87,7 @@ export default function ChatView() {
         role: "assistant",
         content: result.text,
         provider: result.provider,
-        sources: webEnabled || links.length ? undefined : undefined,
+        sources: found.length ? found : undefined,
         at: Date.now(),
       };
       patchConversation(conversationId, { messages: [...history, assistant] });
@@ -110,7 +116,7 @@ export default function ChatView() {
             <div className="pb-2">
               <h2 className="text-[22px] font-semibold tracking-[-0.02em] sm:text-[26px]">O que vamos criar hoje?</h2>
               <p className="mt-2 max-w-lg text-[12.5px] leading-relaxed" style={{ color: "var(--muted)" }}>
-                Groq responde primeiro, OpenRouter assume depois e o GitHub Models fecha a fila. A pesquisa web funciona sem chave.
+                Groq responde primeiro e o OpenRouter assume se a Groq falhar. A pesquisa web funciona sem chave.
               </p>
               <div className="mt-5 grid gap-2 sm:grid-cols-2">
                 {SUGGESTIONS.map((item) => (
