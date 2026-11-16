@@ -256,7 +256,7 @@ export default function ChatView() {
               rows={1}
               placeholder="Pergunte algo, cole um link ou peça uma pesquisa."
               aria-label="Mensagem"
-              className="w-full resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-[var(--muted-2)] sm:text-[13px]"
+              className="w-full resize-none bg-transparent text-[16px] leading-relaxed outline-none placeholder:text-[var(--muted-2)]"
             />
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               <button
