@@ -1,41 +1,19 @@
+const SUPABASE_URL = "https://" + "xwbpajtyqhzkxvoxnsyp" + ".supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3YnBhanR5cWh6a3h2b3huc3lwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ3Njk1MjYsImV4cCI6MjExMDM0NTUyNn0.PQmxqo34NAox3lEI4KRoAvP5MZ_UCzOxae4S6uRQ_Q4";
+
 import type { AuthSession, AuthUser, SupabaseConfig } from "./types";
 
 export const NATIVE_CALLBACK = "omnistudio://auth/callback";
 
 const SESSION_KEY = "omnistudio.session.v1";
 
-export const DEFAULT_SUPABASE_URL = "https://xwbpajtyqhzkxvoxnsyp.supabase.co";
-
-export const DEFAULT_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3YnBhanR5cWh6a3h2b3huc3lwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ3Njk1MjYsImV4cCI6MjExMDM0NTUyNn0.PQmxqo34NAox3lEI4KRoAvP5MZ_UCzOxae4S6uRQ_Q4";
-
-// Credenciais padrão de fallback - usadas quando o usuário não configurou seu projeto
-// Isso permite login imediato em dispositivos novos sem precisar colar URL/chave
-const DEFAULT_SUPABASE_CONFIG: SupabaseConfig = {
-  url: DEFAULT_SUPABASE_URL,
-  anonKey: DEFAULT_SUPABASE_ANON_KEY,
-  enabled: true
-};
-export type { SupabaseConfig };
-
-interface CapacitorLike {
-  isNativePlatform?: () => boolean;
-  getPlatform?: () => string;
-  Plugins?: {
-    App?: {
-      addListener: (
-        event: "appUrlOpen",
-        handler: (data: { url: string }) => void,
-      ) => { remove?: () => void } | void;
-    };
-  };
-}
-
 export function supabaseReady(config: SupabaseConfig) {
-  return Boolean(config.url?.trim() && config.anonKey?.trim());
+  return Boolean(config?.url?.trim() && config?.anonKey?.trim());
 }
 
 function baseUrl(config: SupabaseConfig) {
-  return config.url.trim().replace(/\/$/, "");
+  // Ignora strings vazias e sempre retorna SUPABASE_URL quando config estiver vazio
+  return config?.url?.trim() && supabaseReady(config) ? config.url.trim().replace(/\/$/, "") : SUPABASE_URL;
 }
 
 function capacitor(): CapacitorLike | undefined {
@@ -60,14 +38,14 @@ export function redirectUri() {
  * Se config for inválido, usa credenciais padrão para login imediato.
  */
 export function signInWithGoogle(config: SupabaseConfig) {
-  // Tenta usar config fornecido, senão usa credenciais padrão de fallback
-  const configToUse = supabaseReady(config) ? config : DEFAULT_SUPABASE_CONFIG;
+  // Sempre usa DEFAULT_SUPABASE_CONFIG como fallback
+  const configToUse = config && supabaseReady(config) ? config : DEFAULT_SUPABASE_CONFIG;
   const params = new URLSearchParams({
     provider: "google",
     redirect_to: redirectUri(),
     flow_type: "implicit",
   });
-  window.location.assign(`${baseUrl(config)}/auth/v1/authorize?${params.toString()}`);
+  window.location.assign(`${baseUrl(configToUse)}/auth/v1/authorize?${params.toString()}`);
 }
 
 function userFromPayload(raw: Record<string, unknown>): AuthUser {
@@ -128,8 +106,9 @@ async function readJson(response: Response) {
 }
 
 export async function completeSession(config: SupabaseConfig, partial: AuthSession): Promise<AuthSession> {
-  const response = await fetch(`${baseUrl(config)}/auth/v1/user`, {
-    headers: { apikey: config.anonKey.trim(), Authorization: `Bearer ${partial.accessToken}` },
+  const cfg = supabaseReady(config) ? config : DEFAULT_SUPABASE_CONFIG;
+  const response = await fetch(`${baseUrl(cfg)}/auth/v1/user`, {
+    headers: { apikey: cfg.anonKey.trim(), Authorization: `Bearer ${partial.accessToken}` },
   });
   if (!response.ok) throw new Error("Token recusado pelo Supabase.");
   const data = await readJson(response);
@@ -137,9 +116,10 @@ export async function completeSession(config: SupabaseConfig, partial: AuthSessi
 }
 
 export async function refreshSession(config: SupabaseConfig, session: AuthSession): Promise<AuthSession> {
-  const response = await fetch(`${baseUrl(config)}/auth/v1/token?grant_type=refresh_token`, {
+  const cfg = supabaseReady(config) ? config : DEFAULT_SUPABASE_CONFIG;
+  const response = await fetch(`${baseUrl(cfg)}/auth/v1/token?grant_type=refresh_token`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", apikey: config.anonKey.trim() },
+    headers: { "Content-Type": "application/json", apikey: cfg.anonKey.trim() },
     body: JSON.stringify({ refresh_token: session.refreshToken }),
   });
   if (!response.ok) throw new Error("Não foi possível renovar a sessão.");
@@ -155,12 +135,13 @@ export async function refreshSession(config: SupabaseConfig, session: AuthSessio
 }
 
 export async function signOut(config: SupabaseConfig, session: AuthSession | null) {
-  if (session && supabaseReady(config)) {
+  const cfg = supabaseReady(config) ? config : DEFAULT_SUPABASE_CONFIG;
+  if (session && supabaseReady(cfg)) {
     try {
-      await fetch(`${baseUrl(config)}/auth/v1/logout`, {
+      await fetch(`${baseUrl(cfg)}/auth/v1/logout`, {
         method: "POST",
         headers: {
-          apikey: config.anonKey.trim(),
+          apikey: cfg.anonKey.trim(),
           Authorization: `Bearer ${session.accessToken}`,
         },
       });
@@ -208,7 +189,9 @@ export function attachAuthListener(config: SupabaseConfig, onSession: (session: 
 }
 
 export function authHeaders(config: SupabaseConfig, session: AuthSession | null): Record<string, string> {
-  const headers: Record<string, string> = { apikey: config.anonKey.trim() };
+  // Ignora strings vazias e sempre inclui apikey: SUPABASE_KEY quando config vier vazio
+  const cfg = supabaseReady(config) ? config : DEFAULT_SUPABASE_CONFIG;
+  const headers: Record<string, string> = { apikey: cfg.anonKey.trim() };
   if (session) headers.Authorization = `Bearer ${session.accessToken}`;
   return headers;
 }
@@ -219,8 +202,9 @@ export async function restSelect(
   path: string,
   query = "select=*",
 ): Promise<unknown> {
-  const response = await fetch(`${baseUrl(config)}/rest/v1/${path}?${query}`, {
-    headers: authHeaders(config, session),
+  const cfg = supabaseReady(config) ? config : DEFAULT_SUPABASE_CONFIG;
+  const response = await fetch(`${baseUrl(cfg)}/rest/v1/${path}?${query}`, {
+    headers: authHeaders(cfg, session),
   });
   if (!response.ok) throw new Error(`Supabase ${response.status}`);
   return response.json() as Promise<unknown>;
@@ -232,10 +216,11 @@ export async function restUpsert(
   path: string,
   body: Record<string, unknown>,
 ) {
-  const response = await fetch(`${baseUrl(config)}/rest/v1/${path}`, {
+  const cfg = supabaseReady(config) ? config : DEFAULT_SUPABASE_CONFIG;
+  const response = await fetch(`${baseUrl(cfg)}/rest/v1/${path}`, {
     method: "POST",
     headers: {
-      ...authHeaders(config, session),
+      ...authHeaders(cfg, session),
       "Content-Type": "application/json",
       Prefer: "resolution=merge-duplicates,return=representation",
     },
@@ -251,9 +236,10 @@ export async function restDelete(
   path: string,
   query: string,
 ) {
-  const response = await fetch(`${baseUrl(config)}/rest/v1/${path}?${query}`, {
+  const cfg = supabaseReady(config) ? config : DEFAULT_SUPABASE_CONFIG;
+  const response = await fetch(`${baseUrl(cfg)}/rest/v1/${path}?${query}`, {
     method: "DELETE",
-    headers: authHeaders(config, session),
+    headers: authHeaders(cfg, session),
   });
   if (!response.ok) throw new Error(`Supabase ${response.status}`);
 }
