@@ -353,7 +353,7 @@ function topicOf(prompt: string) {
   return words.slice(0, 6).join(" ") || "seu projeto";
 }
 
-const GREETING = /^(oi+|ol[áa]|opa|eae|e a[íi]|bom dia|boa tarde|boa noite|tudo bem|tudo bom|beleza|blz)/i;
+const GREETING = /^(oi+|ol[áa]|opa|eae|e a[íi]|bom dia|boa tarde|boa noite|tudo bem|tudo bom|beleza|blz)(?![a-z0-9à-ú])/i;
 
 const GREETING_REPLIES = [
   "Oi! Tudo certo por aqui. No que você quer mexer hoje?",
@@ -370,7 +370,7 @@ export function localAnswer(prompt: string): string {
   if (GREETING.test(text) && text.length <= 24) {
     return GREETING_REPLIES[text.length % GREETING_REPLIES.length];
   }
-  if (/^(valeu|obrigad|obrigado|brigad|thanks)/i.test(text)) {
+  if (/^(valeu|obrigad[oa]?|brigad[oa]?|thanks)/i.test(text)) {
     return "De nada! Se precisar de mais alguma coisa, é só chamar.";
   }
   return [
