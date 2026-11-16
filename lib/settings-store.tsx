@@ -32,7 +32,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   rate: 1.02,
   sfxVolume: 0.6,
   profile: { name: "SysArchX", email: "" },
-  supabase: { url: "", anonKey: "", enabled: false },
+  supabase: { 
+    url: "https://xwbpajtyqhzkxvoxnsyp.supabase.co",
+    anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3YnBhanR5cWh6a3h2b3huc3lwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ3Njk1MjYsImV4cCI6MjExMDM0NTUyNn0.PQmxqo34NAox3lEI4KRoAvP5MZ_UCzOxae4S6uRQ_Q4",
+    enabled: true
+  },
   github: { token: "", repo: "SysArchX/OmniStudio" },
 };
 

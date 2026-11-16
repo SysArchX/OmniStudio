@@ -1,7 +1,17 @@
 import type { AuthSession, AuthUser, SupabaseConfig } from "./types";
 
-const SESSION_KEY = "omnistudio.session.v1";
 export const NATIVE_CALLBACK = "omnistudio://auth/callback";
+
+const SESSION_KEY = "omnistudio.session.v1";
+
+// Credenciais padrão de fallback - usadas quando o usuário não configurou seu projeto
+// Isso permite login imediato em dispositivos novos sem precisar colar URL/chave
+const DEFAULT_SUPABASE_CONFIG: SupabaseConfig = {
+  url: "https://xwbpajtyqhzkxvoxnsyp.supabase.co",
+  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh3YnBhanR5cWh6a3h2b3huc3lwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ3Njk1MjYsImV4cCI6MjExMDM0NTUyNn0.PQmxqo34NAox3lEI4KRoAvP5MZ_UCzOxae4S6uRQ_Q4",
+  enabled: true
+};
+export type { SupabaseConfig };
 
 interface CapacitorLike {
   isNativePlatform?: () => boolean;
@@ -44,9 +54,11 @@ export function redirectUri() {
 /**
  * OAuth do Google pelo endpoint REST do Supabase, sem SDK.
  * No nativo o retorno usa o esquema omnistudio://, tratado pelo Electron ou pelo app Android.
+ * Se config for inválido, usa credenciais padrão para login imediato.
  */
 export function signInWithGoogle(config: SupabaseConfig) {
-  if (!supabaseReady(config)) throw new Error("Configure a URL e a anon key do Supabase.");
+  // Tenta usar config fornecido, senão usa credenciais padrão de fallback
+  const configToUse = supabaseReady(config) ? config : DEFAULT_SUPABASE_CONFIG;
   const params = new URLSearchParams({
     provider: "google",
     redirect_to: redirectUri(),

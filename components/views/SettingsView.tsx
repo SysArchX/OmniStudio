@@ -356,7 +356,7 @@ export default function SettingsView() {
                     type="password"
                     value={settings.supabase.anonKey}
                     onChange={(event) => updateSupabase({ anonKey: event.target.value })}
-                    placeholder="eyJhbGciOi..."
+                    placeholder="sb_publishable_b-Nl5hUy1JnoqFmcLm6isg_pmqITIEG"
                     className="input mono mt-1 !text-[11px]"
                     spellCheck={false}
                   />

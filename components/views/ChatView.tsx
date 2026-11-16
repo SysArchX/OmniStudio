@@ -77,6 +77,19 @@ export default function ChatView() {
     setActiveId(fresh.id);
   };
 
+  const removeConversation = (id: string) => {
+    setConversations((prev) => {
+      const next = prev.filter((item) => item.id !== id);
+      if (!next.length) {
+        const fresh = newConversation();
+        setActiveId(fresh.id);
+        return [fresh];
+      }
+      if (id === activeId) setActiveId(next[0].id);
+      return next;
+    });
+  };
+
   const { settings } = useSettings();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string>("");
@@ -229,11 +242,6 @@ export default function ChatView() {
     if (!response.ok) return null;
     const data = await response.json();
     return data.session ?? null;
-  };
-
-  const empty = !active?.messages.length;
-
-  return (
   };
 
   const empty = !active?.messages.length;

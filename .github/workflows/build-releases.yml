@@ -37,7 +37,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
           cache: npm
 
       - name: Instalar dependências
@@ -66,7 +66,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
           cache: npm
 
       - uses: actions/setup-java@v4
@@ -90,23 +90,24 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleRelease --no-daemon
 
-      - name: Renomear APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk OmniStudio.apk
+      - name: Preparar arquivo
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk "${{ github.run_number }}.apk"
+          ls -lh "${{ github.run_number }}.apk"
 
       - uses: actions/upload-artifact@v4
         with:
           name: omni-Android
-          path: OmniStudio.apk
+          path: "${{ github.run_number }}.apk"
 
   release:
     name: Publicar release
     needs: [desktop, android]
     runs-on: ubuntu-latest
+    permissions: { contents: write }
     steps:
-      - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
           path: artifacts

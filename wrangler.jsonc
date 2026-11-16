@@ -1,0 +1,9 @@
+name = "omnistudio"
+
+[env.production]
+db = "omnistudio_db"
+binding = "DB"
+
+[env.preview]
+db = "omnistudio_preview"
+binding = "DB"
