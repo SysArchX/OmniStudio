@@ -184,13 +184,17 @@ export async function planQueries(
   const base = normalizeQuery(contextual);
   if (!base) return [];
 
-  const english = toEnglish(base);
-  const topic = keywords(base).slice(0, 4).join(" ");
+  const terms = keywords(base);
+  const topic = terms.slice(0, 6).join(" ");
+  const englishTerms = keywords(toEnglish(topic) || "");
+  const english = englishTerms.length ? englishTerms.slice(0, 6).join(" ") : toEnglish(base);
 
+  // Consultas curtas por palavra-chave rendem mais que a frase inteira.
   const heuristic = [
+    topic ? `${topic} ${YEAR}` : "",
+    english ? `${english} ${YEAR}` : "",
+    topic && english ? `${topic} ${english}` : base,
     base,
-    english,
-    topic ? `${topic} ${YEAR}` : `${base} ${YEAR}`,
   ].filter((query) => query && query.length > 2);
 
   if (options.openrouterKey?.trim()) {
@@ -339,6 +343,25 @@ export async function readPage(url: string, limit = 3200): Promise<ResearchPage 
   }
 }
 
+/** Descarta resultado que não tem nenhuma palavra-chave da consulta. */
+function relevant(hits: SearchHit[], queries: string[]) {
+  const terms = new Set(
+    queries
+      .flatMap((query) => keywords(query))
+      .filter((word) => word.length > 2 && word !== String(YEAR)),
+  );
+  if (!terms.size) return hits;
+  const matched = hits.filter((hit) => {
+    const haystack = `${hit.title} ${hit.snippet} ${hit.url}`.toLowerCase();
+    for (const term of terms) {
+      if (haystack.includes(term)) return true;
+    }
+    return false;
+  });
+  // se o filtro for agressivo demais, mantém o que veio das fontes com snippet
+  return matched.length >= 3 ? matched : hits.filter((hit) => hit.snippet.trim().length > 0);
+}
+
 function dedupe(hits: SearchHit[]) {
   const seen = new Set<string>();
   const out: SearchHit[] = [];
@@ -355,7 +378,9 @@ function dedupe(hits: SearchHit[]) {
 /** Páginas com melhor chance de conter resposta real: documentação e artigos. */
 function pickPages(hits: SearchHit[], links: string[]) {
   if (links.length) return links.slice(0, 3);
-  const good = hits.filter((hit) => !/wikipedia\.org/.test(hit.url) && /^https?:/.test(hit.url));
+  const good = hits.filter(
+    (hit) => !/wikipedia\.org/.test(hit.url) && /^https?:/.test(hit.url) && hit.snippet.trim().length > 0,
+  );
   const byDomain = new Map<string, string>();
   for (const hit of good) {
     try {
@@ -388,11 +413,12 @@ export async function gatherContext(
     Promise.all(queries.slice(0, 2).map((query) => searchJina(query))),
   ]);
 
-  const merged = dedupe([
-    ...jinaResults.flat(),
+  const ordered = dedupe([
     ...composioResults.flat(),
     ...freeResults.flat(),
-  ]).slice(0, 10);
+    ...jinaResults.flat(),
+  ]);
+  const merged = relevant(ordered, queries).slice(0, 10);
 
   const targets = pickPages(merged, links).slice(0, options.maxPages ?? 3);
   const pages = (await Promise.all(targets.map((url) => readPage(url)))).filter(
