@@ -359,12 +359,25 @@ async function searchWikipedia(query: string, lang: "pt" | "en"): Promise<Search
   const data = (await response.json()) as {
     query?: { search?: Array<{ title: string; snippet: string }> };
   };
-  return (data.query?.search ?? []).map((item) => ({
-    title: item.title,
-    url: `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/\s/g, "_"))}`,
-    snippet: item.snippet.replace(/<[^>]+>/g, "").slice(0, 220),
-    origin: "Wikipédia" as const,
-  }));
+  // A busca da Wikipédia é difusa: só vale o resultado que cita o termo pedido.
+  const terms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((word) => word.replace(/[^\p{L}\p{N}.+#]/gu, ""))
+    .filter((word) => word.length > 2);
+
+  return (data.query?.search ?? [])
+    .map((item) => ({
+      title: item.title,
+      url: `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/\s/g, "_"))}`,
+      snippet: item.snippet.replace(/<[^>]+>/g, "").slice(0, 220),
+      origin: "Wikipédia" as const,
+    }))
+    .filter((hit) => {
+      if (!terms.length) return true;
+      const haystack = `${hit.title} ${hit.snippet}`.toLowerCase();
+      return terms.some((term) => haystack.includes(term));
+    });
 }
 
 async function searchDuckDuckGo(query: string): Promise<SearchHit[]> {

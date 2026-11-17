@@ -358,8 +358,8 @@ function relevant(hits: SearchHit[], queries: string[]) {
     }
     return false;
   });
-  // se o filtro for agressivo demais, mantém o que veio das fontes com snippet
-  return matched.length >= 3 ? matched : hits.filter((hit) => hit.snippet.trim().length > 0);
+  // melhor sem fonte do que com fonte fora do assunto
+  return matched;
 }
 
 function dedupe(hits: SearchHit[]) {
