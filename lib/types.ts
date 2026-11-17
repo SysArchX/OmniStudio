@@ -33,6 +33,8 @@ export interface AppSettings {
   voiceURI: string | null;
   rate: number;
   sfxVolume: number;
+  /** Modelo fixado da OpenRouter, ou `auto` para o ranking por capacidade. */
+  openrouterModel?: string;
   profile: { name: string; email: string };
   supabase: SupabaseConfig;
   github: GithubConfig;
@@ -43,6 +45,8 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   provider?: string;
+  /** Modelo que respondeu, já formatado para o selo ("DeepSeek R1"). */
+  model?: string;
   sources?: Array<{ title: string; url: string }>;
   at: number;
 }

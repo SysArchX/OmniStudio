@@ -21,6 +21,8 @@ import { useAuth } from "@/lib/auth-store";
 import { getComposioKey, setComposioKey } from "@/lib/composio";
 import { pullKeys, pushKeys } from "@/lib/cloud";
 import {
+  AUTO_MODEL,
+  OPENROUTER_RANKING,
   providerKeyHelp,
   PROVIDER_LABEL,
   PROVIDER_MODEL,
@@ -273,6 +275,32 @@ export default function SettingsView() {
                   </div>
                 );
               })}
+
+              <div className="panel space-y-2 p-3.5">
+                <p className="text-[12px] font-medium">Modelo da OpenRouter</p>
+                <p className="text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+                  Automático ordena por capacidade: DeepSeek R1, DeepSeek V3, Llama 3.3 70B, Qwen3 235B e segue descendo
+                  na lista quando o provedor responde 429, 404 ou 503. O chat mostra o modelo que realmente respondeu.
+                </p>
+                <select
+                  value={settings.openrouterModel ?? AUTO_MODEL}
+                  onChange={(event) => update({ openrouterModel: event.target.value })}
+                  className="input !text-[11.5px]"
+                  aria-label="Modelo da OpenRouter"
+                >
+                  <option value={AUTO_MODEL}>Automático (Melhores Modelos Primeiro)</option>
+                  {OPENROUTER_RANKING.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.label} · Tier {model.tier}
+                    </option>
+                  ))}
+                </select>
+                <p className="mono text-[9.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+                  {settings.openrouterModel && settings.openrouterModel !== AUTO_MODEL
+                    ? settings.openrouterModel
+                    : "auto → deepseek/deepseek-r1:free"}
+                </p>
+              </div>
 
               <Toggle
                 label="Troca automática de provedor"

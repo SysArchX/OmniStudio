@@ -10,11 +10,17 @@ export interface BrainConfig {
   fallback: boolean;
   /** Provedor escolhido no compositor; os demais entram como fallback. */
   preferred?: ProviderId;
+  /** Modelo fixado da OpenRouter ou `auto` para a ordem por capacidade. */
+  openrouterModel?: string;
 }
 
 export interface BrainResult {
   text: string;
   provider: ProviderId | "local";
+  /** Modelo que realmente respondeu (id da OpenRouter, por exemplo). */
+  model?: string;
+  /** Rótulo curto para o selo do chat ("DeepSeek R1", "Llama 3.3 70B"). */
+  modelLabel?: string;
   attempts: Array<{ provider: ProviderId; ok: boolean; detail?: string }>;
 }
 
@@ -47,8 +53,46 @@ export const PROVIDER_MODEL: Record<ProviderId, string> = {
   mistral: "mistral-small-latest",
 };
 
-/** Fallbacks usados só quando a OpenRouter recusa o roteador free. */
-const OPENROUTER_FALLBACKS = ["nvidia/nemotron-3-ultra-550b-a55b:free", "google/gemma-4-31b-it:free"];
+export interface OpenRouterModel {
+  id: string;
+  label: string;
+  tier: 1 | 2;
+}
+
+export const AUTO_MODEL = "auto";
+
+/**
+ * Ranking de modelos free por capacidade real. Tier 1 = raciocínio e código
+ * fortes; Tier 2 = generalistas rápidos. A cascata desce essa lista.
+ */
+export const OPENROUTER_RANKING: OpenRouterModel[] = [
+  { id: "deepseek/deepseek-r1:free", label: "DeepSeek R1", tier: 1 },
+  { id: "deepseek/deepseek-chat-v3-0324:free", label: "DeepSeek V3", tier: 1 },
+  { id: "meta-llama/llama-3.3-70b-instruct:free", label: "Llama 3.3 70B", tier: 1 },
+  { id: "qwen/qwen3-235b-a22b:free", label: "Qwen3 235B", tier: 1 },
+  { id: "qwen/qwen-2.5-coder-32b-instruct:free", label: "Qwen2.5 Coder 32B", tier: 1 },
+  { id: "google/gemma-3-27b-it:free", label: "Gemma 3 27B", tier: 1 },
+  { id: "mistralai/mistral-small-3.1-24b-instruct:free", label: "Mistral Small 3.1", tier: 1 },
+  { id: "qwen/qwen-2.5-72b-instruct:free", label: "Qwen2.5 72B", tier: 2 },
+  { id: "nousresearch/hermes-3-llama-3.1-405b:free", label: "Hermes 3 405B", tier: 2 },
+  { id: "openrouter/free", label: "OpenRouter Free", tier: 2 },
+];
+
+/** Modelo fixado primeiro, depois o ranking completo sem repetir. */
+export function openrouterCandidates(pinned?: string | null) {
+  const ranked = OPENROUTER_RANKING.map((item) => item.id);
+  const chosen = pinned && pinned !== AUTO_MODEL ? pinned.trim() : "";
+  if (!chosen) return ranked;
+  return [chosen, ...ranked.filter((id) => id !== chosen)];
+}
+
+/** Rótulo legível de um id de modelo, com queda para o trecho final do id. */
+export function modelLabelOf(id: string) {
+  const known = OPENROUTER_RANKING.find((item) => item.id === id);
+  if (known) return known.label;
+  const base = id.split("/").pop() ?? id;
+  return base.replace(/:free$/, "").replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 
 const KEY_HELP: Record<ProviderId, string> = {
   openrouter: "openrouter.ai/keys",
@@ -145,25 +189,39 @@ async function callMistral(messages: BrainMessage[], key: string) {
   return text;
 }
 
-async function callOpenRouter(messages: BrainMessage[], key: string) {
+/** 429, 402 e 5xx pedem próxima tentativa; 404/400 indicam modelo fora do catálogo. */
+function shouldCascade(error: unknown) {
+  if (!(error instanceof ProviderError)) return false;
+  if (error.status === undefined) return false;
+  return [400, 402, 404, 408, 429, 502, 503, 504].includes(error.status);
+}
+
+async function callOpenRouter(
+  messages: BrainMessage[],
+  key: string,
+  pinned?: string | null,
+): Promise<{ text: string; model: string }> {
   let lastError: unknown;
-  for (const model of [PROVIDER_MODEL.openrouter, ...OPENROUTER_FALLBACKS]) {
+  for (const model of openrouterCandidates(pinned)) {
     try {
-      return await callOpenRouterOnce(messages, key, model);
+      return { text: await callOpenRouterOnce(messages, key, model), model };
     } catch (error) {
       lastError = error;
-      const retriable =
-        error instanceof ProviderError && error.kind === "other" && error.status !== undefined && error.status < 500;
-      if (!retriable) throw error;
+      if (!shouldCascade(error)) throw error;
     }
   }
   throw lastError instanceof Error ? lastError : new Error("OpenRouter indisponível.");
 }
 
-async function callProvider(provider: ProviderId, messages: BrainMessage[], key: string) {
-  if (provider === "groq") return callGroq(messages, key);
-  if (provider === "mistral") return callMistral(messages, key);
-  return callOpenRouter(messages, key);
+async function callProvider(
+  provider: ProviderId,
+  messages: BrainMessage[],
+  key: string,
+  pinned?: string | null,
+): Promise<{ text: string; model: string }> {
+  if (provider === "groq") return { text: await callGroq(messages, key), model: PROVIDER_MODEL.groq };
+  if (provider === "mistral") return { text: await callMistral(messages, key), model: PROVIDER_MODEL.mistral };
+  return callOpenRouter(messages, key, pinned);
 }
 
 function friendly(error: unknown) {
@@ -193,9 +251,15 @@ export async function runBrain(messages: BrainMessage[], config: BrainConfig): P
     const key = config.keys[provider]?.trim();
     if (!key) continue;
     try {
-      const text = await callProvider(provider, withSystem, key);
+      const answered = await callProvider(provider, withSystem, key, config.openrouterModel);
       attempts.push({ provider, ok: true });
-      return { text, provider, attempts };
+      return {
+        text: answered.text,
+        provider,
+        model: answered.model,
+        modelLabel: modelLabelOf(answered.model),
+        attempts,
+      };
     } catch (error) {
       attempts.push({ provider, ok: false, detail: friendly(error) });
       if (!config.fallback) throw new Error(`${PROVIDER_LABEL[provider]}: ${friendly(error)}.`);
@@ -227,6 +291,8 @@ export const SYSTEM_PROMPT = [
   "Nunca use o molde \"Diga o objetivo / o que já existe / o que impede de terminar\".",
   "Seja proativo: quando a pergunta for vaga, escolha a interpretação mais útil, entregue o resultado e ofereça o próximo passo em uma linha.",
   "Se a mensagem trouxer \"Contexto de pesquisa\" com páginas ao vivo, priorize esse conteúdo, cite a fonte pelo nome e diga a data quando importar. Se nada servir, ignore o bloco e responda pelo seu conhecimento, sem listar fontes.",
+  "Interprete a intenção: gíria, abreviação, erro de digitação e frase cortada não devem ser lidos ao pé da letra. Se a pergunta real for outra, responda a real.",
+  "Ao usar pesquisa, diga em uma linha o que encontrou e quantas fontes leu; nunca invente link nem data.",
   "Tabelas só quando houver dados para comparar; evite enfeite e excesso de emoji.",
   "Código sempre em bloco com a linguagem marcada, completo e executável.",
 ].join("\n");
@@ -242,7 +308,7 @@ export function looksLikeSearchQuery(prompt: string) {
 export async function testProvider(provider: ProviderId, key: string): Promise<ProviderTestResult> {
   if (!key.trim()) return { ok: false, status: "idle", message: "Nenhuma chave informada." };
   try {
-    const text = await callProvider(
+    const answered = await callProvider(
       provider,
       [
         { role: "system", content: "Responda apenas com a palavra OK." },
@@ -250,7 +316,11 @@ export async function testProvider(provider: ProviderId, key: string): Promise<P
       ],
       key.trim(),
     );
-    return { ok: true, status: "connected", message: `Conectado. Resposta: ${text.slice(0, 24)}` };
+    return {
+      ok: true,
+      status: "connected",
+      message: `Conectado com ${modelLabelOf(answered.model)}. Resposta: ${answered.text.slice(0, 20)}`,
+    };
   } catch (error) {
     if (error instanceof ProviderError) {
       if (error.kind === "limit") return { ok: false, status: "limit", message: "Limite atingido, tente mais tarde." };
@@ -272,7 +342,7 @@ export interface SearchHit {
   title: string;
   url: string;
   snippet: string;
-  origin: "Wikipédia" | "DuckDuckGo" | "Tavily";
+  origin: "Wikipédia" | "DuckDuckGo" | "Tavily" | "Jina";
 }
 
 async function searchWikipedia(query: string, lang: "pt" | "en"): Promise<SearchHit[]> {
@@ -352,15 +422,40 @@ export function findLinks(text: string) {
   return Array.from(text.matchAll(/https?:\/\/[^\s)]+/g)).map((match) => match[0]);
 }
 
-export function researchBlock(query: string, hits: SearchHit[], page?: { url: string; text: string }) {
-  const lines = [`Pesquisa web para "${query}":`];
+export interface ResearchPage {
+  url: string;
+  title?: string;
+  text: string;
+}
+
+/**
+ * Bloco de pesquisa entregue ao modelo: consultas realmente usadas, trechos de
+ * cada fonte e o corpo lido das páginas mais relevantes, com corte por página.
+ */
+export function researchBlock(
+  query: string,
+  hits: SearchHit[],
+  pages: ResearchPage[] = [],
+  queries: string[] = [],
+) {
+  const lines = [
+    `Contexto de pesquisa para "${query}".`,
+    queries.length ? `Consultas usadas: ${queries.join(" | ")}` : "",
+    "Leia com atenção: entenda a intenção por trás da pergunta, não só as palavras. Cruze datas com o ano atual (" +
+      new Date().getFullYear() +
+      ") e avise quando a informação for antiga.",
+    "",
+  ].filter(Boolean);
+
   hits.forEach((hit, index) => {
     lines.push(`${index + 1}. ${hit.title} (${hit.origin}) ${hit.url}`);
     if (hit.snippet) lines.push(`   ${hit.snippet}`);
   });
-  if (page) {
-    lines.push("", `Conteúdo de ${page.url}:`, page.text.slice(0, 4000));
-  }
+
+  pages.slice(0, 3).forEach((page, index) => {
+    lines.push("", `Página ${index + 1}: ${page.title ? `${page.title} — ` : ""}${page.url}`, page.text.slice(0, 2600));
+  });
+
   return lines.join("\n");
 }
 

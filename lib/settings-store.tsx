@@ -31,6 +31,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   voiceURI: null,
   rate: 1.02,
   sfxVolume: 0.6,
+  openrouterModel: "auto",
   profile: { name: "SysArchX", email: "" },
   supabase: { 
     url: "https://xwbpajtyqhzkxvoxnsyp.supabase.co",

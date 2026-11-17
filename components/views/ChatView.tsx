@@ -82,19 +82,34 @@ export default function ChatView() {
       let found: SearchHit[] = [];
       const shouldSearch = links.length > 0 || (webEnabled && looksLikeSearchQuery(prompt));
       if (shouldSearch) {
-        setStatus(links.length ? "Lendo o link..." : "Pesquisando na web...");
-        const bundle = await gatherContext(prompt);
-        if (bundle.hits.length || bundle.page) {
+        setStatus(links.length ? "Lendo o link..." : "Entendendo o pedido e pesquisando em 3 frentes...");
+        const recent = history
+          .filter((message) => message.role === "user")
+          .slice(-3)
+          .map((message) => message.content);
+        const bundle = await gatherContext(prompt, {
+          history: recent,
+          openrouterKey: settings.keys.openrouter,
+        });
+        if (bundle.hits.length || bundle.pages.length) {
           found = bundle.hits;
           setSources(bundle.hits);
-          context = researchBlock(prompt, bundle.hits, bundle.page);
+          context = researchBlock(prompt, bundle.hits, bundle.pages, bundle.queries);
+          if (bundle.pages.length) {
+            setStatus(`Lendo ${bundle.pages.length} página(s) e cruzando fontes...`);
+          }
         }
       }
 
       setStatus("Consultando provedores...");
       const result = await runBrain(
         [...history.map((message) => ({ role: message.role, content: message.content })), ...(context ? [{ role: "user" as const, content: context }] : [])],
-        { keys: settings.keys, fallback: settings.fallback, preferred },
+        {
+          keys: settings.keys,
+          fallback: settings.fallback,
+          preferred,
+          openrouterModel: settings.openrouterModel,
+        },
       );
 
       const assistant: ChatMessage = {
@@ -102,6 +117,7 @@ export default function ChatView() {
         role: "assistant",
         content: result.text,
         provider: result.provider,
+        model: result.modelLabel ?? (result.provider === "local" ? "Local" : undefined),
         sources: found.length ? found : undefined,
         at: Date.now(),
       };
@@ -197,7 +213,9 @@ export default function ChatView() {
                   }}
                 >
                   <p className="mb-1 text-[10px] font-medium uppercase tracking-wide" style={{ color: "var(--muted-2)" }}>
-                    {message.role === "user" ? "Você" : message.provider ?? "Assistente"}
+                    {message.role === "user"
+                      ? "Você"
+                      : (message.model ?? PROVIDER_LABEL[message.provider as ProviderId] ?? "Assistente")}
                   </p>
                   {message.role === "assistant" ? (
                     <div className="break-words">
