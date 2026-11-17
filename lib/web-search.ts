@@ -274,12 +274,12 @@ export async function searchWeb(query: string): Promise<SearchHit[]> {
   }
 }
 
-/** Jina Search: devolve markdown com links; sem chave pode responder 401. */
+/**
+ * Camada Jina: o endpoint `s.jina.ai` exige chave e responde 401, então usamos o
+ * Jina Reader (sem chave) para ler a página de resultados do Bing.
+ */
 async function searchJina(query: string): Promise<SearchHit[]> {
-  const endpoints = [
-    `https://s.jina.ai/${encodeURIComponent(query)}`,
-    `https://r.jina.ai/https://www.bing.com/search?q=${encodeURIComponent(query)}`,
-  ];
+  const endpoints = [`https://r.jina.ai/https://www.bing.com/search?q=${encodeURIComponent(query)}`];
   for (const endpoint of endpoints) {
     try {
       const response = await fetch(endpoint, { headers: { Accept: "text/plain" } });
