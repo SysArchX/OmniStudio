@@ -378,9 +378,7 @@ function dedupe(hits: SearchHit[]) {
 /** Páginas com melhor chance de conter resposta real: documentação e artigos. */
 function pickPages(hits: SearchHit[], links: string[]) {
   if (links.length) return links.slice(0, 3);
-  const good = hits.filter(
-    (hit) => !/wikipedia\.org/.test(hit.url) && /^https?:/.test(hit.url) && hit.snippet.trim().length > 0,
-  );
+  const good = hits.filter((hit) => !/wikipedia\.org/.test(hit.url) && /^https?:/.test(hit.url));
   const byDomain = new Map<string, string>();
   for (const hit of good) {
     try {

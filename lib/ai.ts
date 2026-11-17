@@ -359,12 +359,36 @@ async function searchWikipedia(query: string, lang: "pt" | "en"): Promise<Search
   const data = (await response.json()) as {
     query?: { search?: Array<{ title: string; snippet: string }> };
   };
-  // A busca da Wikipédia é difusa: só vale o resultado que cita o termo pedido.
-  const terms = query
+  // A busca da Wikipédia é difusa e o snippet sempre cita palavras genéricas
+  // ("versão", "atual"), então o título precisa citar o termo específico.
+  const GENERIC = new Set([
+    "versao",
+    "versão",
+    "atual",
+    "atualmente",
+    "hoje",
+    "agora",
+    "melhor",
+    "preco",
+    "preço",
+    "exemplo",
+    "tutorial",
+    "como",
+    "quando",
+    "onde",
+    "qual",
+    "quais",
+    "que",
+    "fazer",
+    "usar",
+  ]);
+  const specific = query
     .toLowerCase()
     .split(/\s+/)
     .map((word) => word.replace(/[^\p{L}\p{N}.+#]/gu, ""))
-    .filter((word) => word.length > 2);
+    .filter((word) => word.length > 3 && !GENERIC.has(word))
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 2);
 
   return (data.query?.search ?? [])
     .map((item) => ({
@@ -374,10 +398,30 @@ async function searchWikipedia(query: string, lang: "pt" | "en"): Promise<Search
       origin: "Wikipédia" as const,
     }))
     .filter((hit) => {
-      if (!terms.length) return true;
-      const haystack = `${hit.title} ${hit.snippet}`.toLowerCase();
-      return terms.some((term) => haystack.includes(term));
+      if (!specific.length) return true;
+      const title = hit.title.toLowerCase();
+      return specific.some((term) => title.includes(term));
     });
+}
+
+/** DuckDuckGo devolve links embrulhados em `duckduckgo.com/l/?uddg=`. */
+function unwrapDuckDuckGo(raw: string) {
+  try {
+    const parsed = new URL(raw);
+    const target = parsed.searchParams.get("uddg");
+    if (target) return decodeURIComponent(target);
+    return raw;
+  } catch {
+    return raw;
+  }
+}
+
+function cleanTitle(raw: string) {
+  return raw
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/[*_`#>]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 async function searchDuckDuckGo(query: string): Promise<SearchHit[]> {
@@ -387,16 +431,27 @@ async function searchDuckDuckGo(query: string): Promise<SearchHit[]> {
   if (!response.ok) return [];
   const text = await response.text();
   const hits: SearchHit[] = [];
+  const seen = new Set<string>();
   const lines = text.split("\n");
-  for (let index = 0; index < lines.length && hits.length < 4; index += 1) {
+
+  for (let index = 0; index < lines.length && hits.length < 5; index += 1) {
     const line = lines[index].trim();
-    if (!line.startsWith("[") || !line.includes("](http")) continue;
-    const match = /^\[(.+?)\]\((https?:\/\/[^\s)]+)\)(.*)$/.exec(line);
+    // aceita `## [Título](url)`, `[Título](url)` e `1. [Título](url)`
+    const match = /\[([^\]]{3,120})\]\((https?:\/\/[^\s)]+)\)/.exec(line);
     if (!match) continue;
-    const url = match[2];
-    if (/duckduckgo\.com|r\.jina\.ai/.test(url)) continue;
-    hits.push({ title: match[1].slice(0, 90), url, snippet: (match[3] ?? "").trim().slice(0, 200), origin: "DuckDuckGo" });
+    const title = cleanTitle(match[1]);
+    if (!title || /^image/i.test(title)) continue;
+
+    const url = unwrapDuckDuckGo(match[2]);
+    if (!/^https?:\/\//.test(url) || /duckduckgo\.com|r\.jina\.ai|external-content/.test(url)) continue;
+    if (seen.has(url)) continue;
+    seen.add(url);
+
+    const next = cleanTitle(lines[index + 1] ?? "");
+    const snippet = next && !/\]\(http/.test(next) ? next.slice(0, 220) : "";
+    hits.push({ title: title.slice(0, 90), url, snippet, origin: "DuckDuckGo" });
   }
+
   return hits;
 }
 
