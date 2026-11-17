@@ -141,7 +141,10 @@ export function normalizeQuery(raw: string) {
   }
   text = text.replace(/^[,\s.:;!?-]+/, "").replace(/\s+/g, " ");
   text = text.replace(/[?!]+$/g, "").trim();
-  return text.replace(/\b([a-z]{1,5})\b/gi, (word) => ABBREVIATIONS[word.toLowerCase()] ?? word);
+  // não expande sufixo de domínio/tecnologia: "next.js" continua "next.js"
+  return text.replace(/(^|[\s(])([a-z]{1,5})\b/gi, (_match, prefix: string, word: string) =>
+    `${prefix}${ABBREVIATIONS[word.toLowerCase()] ?? word}`,
+  );
 }
 
 function keywords(text: string) {
@@ -185,14 +188,16 @@ export async function planQueries(
   if (!base) return [];
 
   const terms = keywords(base);
-  const topic = terms.slice(0, 6).join(" ");
-  const englishTerms = keywords(toEnglish(topic) || "");
+  const year = String(YEAR);
+  const withoutYear = terms.filter((term) => term !== year);
+  const topic = (withoutYear.length ? withoutYear : terms).slice(0, 6).join(" ");
+  const englishTerms = keywords(toEnglish(topic) || "").filter((term) => term !== year);
   const english = englishTerms.length ? englishTerms.slice(0, 6).join(" ") : toEnglish(base);
 
   // Consultas curtas por palavra-chave rendem mais que a frase inteira.
   const heuristic = [
-    topic ? `${topic} ${YEAR}` : "",
-    english ? `${english} ${YEAR}` : "",
+    topic ? `${topic} ${year}` : "",
+    english ? `${english} ${year}` : "",
     topic && english ? `${topic} ${english}` : base,
     base,
   ].filter((query) => query && query.length > 2);
