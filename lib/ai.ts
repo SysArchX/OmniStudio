@@ -230,7 +230,15 @@ export async function runBrain(messages: BrainMessage[], config: BrainConfig): P
     }
   }
 
-  if (config.fallback) return { text: localAnswer(lastUser), provider: "local", attempts };
+  if (config.fallback) {
+    const failures = attempts
+      .filter((attempt) => !attempt.ok)
+      .map((attempt) => `${PROVIDER_LABEL[attempt.provider]}: ${attempt.detail ?? "falhou"}`);
+    const note = failures.length
+      ? `\n\n> Nenhum provedor respondeu agora — ${failures.join(" · ")}. Confira a chave em Configurações, porque os modelos free mudam de id com frequência.`
+      : "";
+    return { text: `${localAnswer(lastUser)}${note}`, provider: "local", attempts };
+  }
   throw new Error("Nenhuma chave configurada. Adicione uma chave em Configurações ou ligue o modo local.");
 }
 
