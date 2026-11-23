@@ -53,46 +53,10 @@ export const PROVIDER_MODEL: Record<ProviderId, string> = {
   mistral: "mistral-small-latest",
 };
 
-export interface OpenRouterModel {
-  id: string;
-  label: string;
-  tier: 1 | 2;
-}
+import { modelLabelOf, openrouterCandidates } from "./model-catalog";
 
-export const AUTO_MODEL = "auto";
-
-/**
- * Ranking de modelos free por capacidade real. Tier 1 = raciocínio e código
- * fortes; Tier 2 = generalistas rápidos. A cascata desce essa lista.
- */
-export const OPENROUTER_RANKING: OpenRouterModel[] = [
-  { id: "deepseek/deepseek-r1:free", label: "DeepSeek R1", tier: 1 },
-  { id: "deepseek/deepseek-chat-v3-0324:free", label: "DeepSeek V3", tier: 1 },
-  { id: "meta-llama/llama-3.3-70b-instruct:free", label: "Llama 3.3 70B", tier: 1 },
-  { id: "qwen/qwen3-235b-a22b:free", label: "Qwen3 235B", tier: 1 },
-  { id: "qwen/qwen-2.5-coder-32b-instruct:free", label: "Qwen2.5 Coder 32B", tier: 1 },
-  { id: "google/gemma-3-27b-it:free", label: "Gemma 3 27B", tier: 1 },
-  { id: "mistralai/mistral-small-3.1-24b-instruct:free", label: "Mistral Small 3.1", tier: 1 },
-  { id: "qwen/qwen-2.5-72b-instruct:free", label: "Qwen2.5 72B", tier: 2 },
-  { id: "nousresearch/hermes-3-llama-3.1-405b:free", label: "Hermes 3 405B", tier: 2 },
-  { id: "openrouter/free", label: "OpenRouter Free", tier: 2 },
-];
-
-/** Modelo fixado primeiro, depois o ranking completo sem repetir. */
-export function openrouterCandidates(pinned?: string | null) {
-  const ranked = OPENROUTER_RANKING.map((item) => item.id);
-  const chosen = pinned && pinned !== AUTO_MODEL ? pinned.trim() : "";
-  if (!chosen) return ranked;
-  return [chosen, ...ranked.filter((id) => id !== chosen)];
-}
-
-/** Rótulo legível de um id de modelo, com queda para o trecho final do id. */
-export function modelLabelOf(id: string) {
-  const known = OPENROUTER_RANKING.find((item) => item.id === id);
-  if (known) return known.label;
-  const base = id.split("/").pop() ?? id;
-  return base.replace(/:free$/, "").replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
+export { AUTO_MODEL, MIN_PARAMS_B, modelLabelOf, modelParamsOf, openrouterCandidates } from "./model-catalog";
+export type { CatalogModel as OpenRouterModel } from "./model-catalog";
 
 const KEY_HELP: Record<ProviderId, string> = {
   openrouter: "openrouter.ai/keys",
@@ -202,7 +166,7 @@ async function callOpenRouter(
   pinned?: string | null,
 ): Promise<{ text: string; model: string }> {
   let lastError: unknown;
-  for (const model of openrouterCandidates(pinned)) {
+  for (const model of await openrouterCandidates(pinned)) {
     try {
       return { text: await callOpenRouterOnce(messages, key, model), model };
     } catch (error) {

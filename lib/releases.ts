@@ -1,5 +1,5 @@
 export const APP_NAME = "OmniStudio";
-export const APP_VERSION = "1.5.3";
+export const APP_VERSION = "1.5.4";
 export const OWNER = "SysArchX";
 export const REPO = "OmniStudio";
 export const REPO_URL = `https://github.com/${OWNER}/${REPO}`;

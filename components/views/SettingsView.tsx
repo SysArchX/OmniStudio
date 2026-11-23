@@ -21,8 +21,6 @@ import { useAuth } from "@/lib/auth-store";
 import { getComposioKey, setComposioKey } from "@/lib/composio";
 import { pullKeys, pushKeys } from "@/lib/cloud";
 import {
-  AUTO_MODEL,
-  OPENROUTER_RANKING,
   providerKeyHelp,
   PROVIDER_LABEL,
   PROVIDER_MODEL,
@@ -30,6 +28,7 @@ import {
   testProvider,
   type ProviderTestResult,
 } from "@/lib/ai";
+import { AUTO_MODEL, MIN_PARAMS_B, catalogSnapshot, loadCatalog, type CatalogModel } from "@/lib/model-catalog";
 import { pullConversations, pullSettings, pushConversations, pushSettings, testSupabase } from "@/lib/cloud";
 import { ptBrVoices, speak } from "@/lib/tts";
 import type { Conversation, ProviderId, ThemeId } from "@/lib/types";
@@ -101,6 +100,7 @@ export default function SettingsView() {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [sync, setSync] = useState<string | null>(null);
   const [composioKey, setComposioKeyState] = useState("");
+  const [catalog, setCatalog] = useState<CatalogModel[]>(() => catalogSnapshot());
   const clearLocalKeys = () => {
     updateKeys({ openrouter: "", groq: "", mistral: "", composio: "" });
     setComposioKey("");
@@ -118,6 +118,16 @@ export default function SettingsView() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => setVoices(ptBrVoices()), []);
+
+  useEffect(() => {
+    let alive = true;
+    loadCatalog().then((models) => {
+      if (alive) setCatalog(models);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const test = async (provider: ProviderId) => {
     setStatus((prev) => ({ ...prev, [provider]: { ...prev[provider], testing: true } }));
@@ -279,8 +289,9 @@ export default function SettingsView() {
               <div className="panel space-y-2 p-3.5">
                 <p className="text-[12px] font-medium">Modelo da OpenRouter</p>
                 <p className="text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
-                  Automático ordena por capacidade: DeepSeek R1, DeepSeek V3, Llama 3.3 70B, Qwen3 235B e segue descendo
-                  na lista quando o provedor responde 429, 404 ou 503. O chat mostra o modelo que realmente respondeu.
+                  A lista vem do catálogo ao vivo da OpenRouter e só inclui modelos free com mais de {MIN_PARAMS_B}B
+                  parâmetros, do maior para o menor. Automático desce essa ordem quando o provedor responde 429, 404 ou
+                  503, e o chat mostra o modelo que realmente respondeu.
                 </p>
                 <select
                   value={settings.openrouterModel ?? AUTO_MODEL}
@@ -289,16 +300,16 @@ export default function SettingsView() {
                   aria-label="Modelo da OpenRouter"
                 >
                   <option value={AUTO_MODEL}>Automático (Melhores Modelos Primeiro)</option>
-                  {OPENROUTER_RANKING.map((model) => (
+                  {catalog.map((model) => (
                     <option key={model.id} value={model.id}>
-                      {model.label} · Tier {model.tier}
+                      {model.label} · {model.paramsB}B · Tier {model.tier}
                     </option>
                   ))}
                 </select>
                 <p className="mono text-[9.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
                   {settings.openrouterModel && settings.openrouterModel !== AUTO_MODEL
                     ? settings.openrouterModel
-                    : "auto → deepseek/deepseek-r1:free"}
+                    : `auto → ${catalog[0]?.id ?? "openrouter/free"}`}
                 </p>
               </div>
 

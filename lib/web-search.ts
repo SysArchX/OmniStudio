@@ -222,7 +222,7 @@ async function expandWithModel(prompt: string, key: string): Promise<string[]> {
     `uma delas deve buscar informação atual de ${YEAR}. Sem numeração, sem explicação.`,
   ].join(" ");
 
-  for (const model of openrouterCandidates(null).slice(0, 3)) {
+  for (const model of (await openrouterCandidates(null)).slice(0, 2)) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 9000);
     try {
