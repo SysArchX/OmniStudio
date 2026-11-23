@@ -28,7 +28,22 @@ import {
   testProvider,
   type ProviderTestResult,
 } from "@/lib/ai";
-import { AUTO_MODEL, MIN_PARAMS_B, catalogSnapshot, loadCatalog, type CatalogModel } from "@/lib/model-catalog";
+import {
+  AUTO_MODEL,
+  GIANT_PARAMS_B,
+  HIGH_PARAMS_B,
+  MIN_PARAMS_B,
+  catalogSnapshot,
+  loadCatalog,
+  type CatalogModel,
+} from "@/lib/model-catalog";
+
+/** Rótulo da faixa de prioridade mostrado no seletor de modelo. */
+const TIER_LABEL: Record<CatalogModel["tier"], string> = {
+  1: "Gigante",
+  2: "Muito grande",
+  3: "Grande",
+};
 import { pullConversations, pullSettings, pushConversations, pushSettings, testSupabase } from "@/lib/cloud";
 import { ptBrVoices, speak } from "@/lib/tts";
 import type { Conversation, ProviderId, ThemeId } from "@/lib/types";
@@ -290,8 +305,9 @@ export default function SettingsView() {
                 <p className="text-[12px] font-medium">Modelo da OpenRouter</p>
                 <p className="text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
                   A lista vem do catálogo ao vivo da OpenRouter e só inclui modelos free com mais de {MIN_PARAMS_B}B
-                  parâmetros, do maior para o menor. Automático desce essa ordem quando o provedor responde 429, 404 ou
-                  503, e o chat mostra o modelo que realmente respondeu.
+                  parâmetros. A prioridade é sempre gigantes de {GIANT_PARAMS_B}B+ primeiro, depois os de {HIGH_PARAMS_B}B+,
+                  e só então o melhor do resto. Automático desce essa ordem quando o provedor responde 429, 404 ou 503,
+                  e o chat mostra o modelo que realmente respondeu.
                 </p>
                 <select
                   value={settings.openrouterModel ?? AUTO_MODEL}
@@ -302,7 +318,7 @@ export default function SettingsView() {
                   <option value={AUTO_MODEL}>Automático (Melhores Modelos Primeiro)</option>
                   {catalog.map((model) => (
                     <option key={model.id} value={model.id}>
-                      {model.label} · {model.paramsB}B · Tier {model.tier}
+                      {model.label} · {model.paramsB}B · {TIER_LABEL[model.tier]}
                     </option>
                   ))}
                 </select>

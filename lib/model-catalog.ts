@@ -13,13 +13,27 @@ export const AUTO_MODEL = "auto";
 /** Piso de capacidade: modelos menores que isso não respondem nada no app. */
 export const MIN_PARAMS_B = 20;
 
+/** Gigantes: prioridade máxima absoluta na cascata. */
+export const GIANT_PARAMS_B = 100;
+
+/** Muito grandes: entram logo depois dos gigantes, antes de qualquer menor. */
+export const HIGH_PARAMS_B = 70;
+
 export interface CatalogModel {
   id: string;
   label: string;
   paramsB: number;
-  tier: 1 | 2;
+  /** 1 = gigante (100B+), 2 = muito grande (70B+), 3 = o resto a partir de 20B. */
+  tier: 1 | 2 | 3;
   reasoning: boolean;
   context: number;
+}
+
+/** Faixa de prioridade de um modelo pelo total de parâmetros. */
+export function tierOf(paramsB: number): 1 | 2 | 3 {
+  if (paramsB >= GIANT_PARAMS_B) return 1;
+  if (paramsB >= HIGH_PARAMS_B) return 2;
+  return 3;
 }
 
 interface RawModel {
@@ -68,7 +82,7 @@ export const FALLBACK_CATALOG: CatalogModel[] = [
     id: "recursive/flint-v1.0:free",
     label: "Flint",
     paramsB: 40,
-    tier: 2,
+    tier: 3,
     reasoning: true,
     context: 262144,
   },
@@ -76,7 +90,7 @@ export const FALLBACK_CATALOG: CatalogModel[] = [
     id: "google/gemma-4-31b-it:free",
     label: "Gemma 4 31B",
     paramsB: 31,
-    tier: 2,
+    tier: 3,
     reasoning: true,
     context: 262144,
   },
@@ -84,7 +98,7 @@ export const FALLBACK_CATALOG: CatalogModel[] = [
     id: "nvidia/nemotron-3.5-lightning:free",
     label: "Nemotron 3.5 Lightning",
     paramsB: 30,
-    tier: 2,
+    tier: 3,
     reasoning: true,
     context: 1000000,
   },
@@ -92,7 +106,7 @@ export const FALLBACK_CATALOG: CatalogModel[] = [
     id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
     label: "Nemotron 3 Nano Omni",
     paramsB: 30,
-    tier: 2,
+    tier: 3,
     reasoning: true,
     context: 256000,
   },
@@ -100,7 +114,7 @@ export const FALLBACK_CATALOG: CatalogModel[] = [
     id: "google/gemma-4-26b-a4b-it:free",
     label: "Gemma 4 26B A4B",
     paramsB: 26,
-    tier: 2,
+    tier: 3,
     reasoning: true,
     context: 262144,
   },
@@ -109,7 +123,7 @@ export const FALLBACK_CATALOG: CatalogModel[] = [
 /** Roteador da própria OpenRouter, usado só como última tentativa. */
 const ROUTER_FALLBACK = "openrouter/free";
 
-const CACHE_KEY = "omnistudio.catalog.v2";
+const CACHE_KEY = "omnistudio.catalog.v3";
 const CACHE_TTL = 6 * 60 * 60 * 1000;
 
 /**
@@ -145,7 +159,11 @@ export function labelOf(raw: RawModel): string {
   return tail.replace(/:free$/i, "").trim() || raw.id.split("/").pop()!.replace(/:free$/, "");
 }
 
-/** Filtra o catálogo por capacidade e ordena do maior para o menor. */
+/**
+ * Ordem de prioridade: gigantes (100B+) primeiro, depois os muito grandes
+ * (70B+), e só então o melhor do resto (20B+) — dentro de cada faixa, do maior
+ * para o menor, com raciocínio e contexto como desempate.
+ */
 export function rankCatalog(raw: RawModel[]): CatalogModel[] {
   const models = raw
     .filter((item) => item.id.endsWith(":free") && item.id !== ROUTER_FALLBACK)
@@ -155,7 +173,7 @@ export function rankCatalog(raw: RawModel[]): CatalogModel[] {
         id: item.id,
         label: labelOf(item),
         paramsB,
-        tier: paramsB >= 100 ? 1 : 2,
+        tier: tierOf(paramsB),
         reasoning: Boolean(item.reasoning),
         context: item.context_length ?? 0,
       };
@@ -163,7 +181,10 @@ export function rankCatalog(raw: RawModel[]): CatalogModel[] {
     .filter((item) => item.paramsB >= MIN_PARAMS_B)
     .sort(
       (a, b) =>
-        b.paramsB - a.paramsB || Number(b.reasoning) - Number(a.reasoning) || b.context - a.context,
+        a.tier - b.tier ||
+        b.paramsB - a.paramsB ||
+        Number(b.reasoning) - Number(a.reasoning) ||
+        b.context - a.context,
     );
   return models;
 }
