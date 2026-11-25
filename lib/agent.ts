@@ -1,5 +1,6 @@
 import type { AgentLogEntry, AgentStep, NativeBridge, SkillDefinition } from "./types";
 import { runBrain, type BrainConfig, type BrainMessage } from "./ai";
+import { gatherContext } from "./web-search";
 
 interface FsFileHandle {
   kind: "file";
@@ -18,24 +19,46 @@ interface FsDirHandle {
 
 interface PickerWindow extends Window {
   showDirectoryPicker?: (options?: { mode?: "read" | "readwrite" }) => Promise<FsDirHandle>;
+  omniNative?: NativeBridge;
 }
 
 let workspace: FsDirHandle | null = null;
+let nativeRoot: string | null = null;
 
 export function fsAccessSupported() {
   return typeof window !== "undefined" && typeof (window as PickerWindow).showDirectoryPicker === "function";
 }
 
 export function currentWorkspaceName() {
+  if (nativeRoot) return nativeRoot;
   return workspace?.name ?? null;
 }
 
-export async function pickWorkspace(): Promise<string | null> {
+/**
+ * Escolhe a pasta de trabalho. No app desktop usa o seletor nativo do
+ * Electron (qualquer caminho, com escrita real); no navegador usa a
+ * File System Access API.
+ */
+export async function pickWorkspace(bridge?: NativeBridge | null): Promise<string | null> {
+  if (bridge?.chooseWorkspace) {
+    const info = await bridge.chooseWorkspace();
+    nativeRoot = info.root;
+    return info.root;
+  }
   const picker = (window as PickerWindow).showDirectoryPicker;
   if (!picker) return null;
   const handle = await picker({ mode: "readwrite" });
   workspace = handle;
   return handle.name;
+}
+
+/** Raiz real usada pelo agente no app instalado. */
+export async function resolveNativeRoot(bridge?: NativeBridge | null): Promise<string | null> {
+  if (!bridge?.getWorkspace) return null;
+  if (nativeRoot) return nativeRoot;
+  const info = await bridge.getWorkspace();
+  nativeRoot = info.root;
+  return info.root;
 }
 
 function safeSegments(path: string) {
@@ -81,6 +104,7 @@ export interface TreeEntry {
 }
 
 export async function listTree(path = "", depth = 2): Promise<TreeEntry[]> {
+  if (!workspace) return [];
   const root = await resolveDir(path ? safeSegments(path) : []);
   const result: TreeEntry[] = [];
   for await (const [name, handle] of root.entries()) {
@@ -105,7 +129,7 @@ export function parseSkillFile(fileName: string, raw: string, source: string): S
   const name = /name:\s*(.+)/.exec(meta)?.[1]?.trim() || fileName.replace(/\.md$/i, "");
   const description = /description:\s*(.+)/.exec(meta)?.[1]?.trim() || body.split("\n").find(Boolean) || "";
   if (!body.trim()) return null;
-  return { name, description: description.slice(0, 400), instructions: body.trim().slice(0, 6000), source };
+  return { name, description: description.slice(0, 400), instructions: body.trim().slice(0, 12000), source };
 }
 
 export async function readSkillsFromWorkspace(): Promise<SkillDefinition[]> {
@@ -125,30 +149,57 @@ export async function readSkillsFromWorkspace(): Promise<SkillDefinition[]> {
   }
 }
 
+/**
+ * Skills globais do projeto: `.agents/skills`, `.claude/skills`, `.codex/skills`,
+ * `.opencode/skills`, `.claude/commands`, além de AGENTS.md e CLAUDE.md.
+ * É o mesmo layout que Claude Code, Codex, Freebuff e OpenCode entendem.
+ */
+export async function loadProjectSkills(bridge?: NativeBridge | null): Promise<SkillDefinition[]> {
+  if (bridge?.readSkills) {
+    try {
+      return await bridge.readSkills();
+    } catch {
+      return [];
+    }
+  }
+  return readSkillsFromWorkspace();
+}
+
+const TOOL_HELP = [
+  '{"tool":"plan","steps":[{"title":"..."}]}',
+  '{"tool":"list_dir","path":"."}',
+  '{"tool":"read_file","path":"src/app.ts"}',
+  '{"tool":"write_file","path":"src/app.ts","content":"..."}',
+  '{"tool":"edit_file","path":"src/app.ts","find":"trecho exato","replace":"novo trecho"}',
+  '{"tool":"run_command","command":"npm run build"}',
+  '{"tool":"web_search","query":"preço do dólar hoje"}',
+  '{"tool":"finish","answer":"resumo do que foi feito"}',
+];
+
 function systemPrompt(skills: SkillDefinition[], root: string, native: boolean) {
   const skillBlock = skills.length
     ? skills
-        .map((skill) => `### Skill: ${skill.name}\n${skill.description}\n${skill.instructions}`)
+        .map((skill) => `### Skill: ${skill.name} (${skill.source})\n${skill.description}\n${skill.instructions}`)
         .join("\n\n")
     : "Nenhuma skill carregada.";
 
   return [
-    "Você é o modo agente do OmniStudio. Trabalha em português do Brasil e executa o pedido passo a passo.",
-    `Raiz de trabalho: ${root}.`,
+    "Você é o agente do OmniStudio. Trabalha em português do Brasil, executa o pedido de verdade e não para no meio.",
+    `Raiz de trabalho: ${root}. Todos os caminhos são relativos a ela.`,
     native
-      ? "Você tem acesso a arquivos e terminal da máquina."
-      : "Você tem acesso somente à pasta escolhida pelo usuário no navegador.",
+      ? "Você tem acesso real ao sistema de arquivos e ao terminal desta máquina, com escrita e execução de comandos."
+      : "Você tem acesso à pasta escolhida pelo usuário no navegador (sem terminal).",
     "",
     "Responda SEMPRE com um único objeto JSON em uma linha, sem markdown, em uma destas formas:",
-    '{"tool":"plan","steps":[{"title":"..."},{"title":"..."}]}',
-    '{"tool":"list_dir","path":"."}',
-    '{"tool":"read_file","path":"src/app.ts"}',
-    '{"tool":"write_file","path":"src/app.ts","content":"..."}',
-    '{"tool":"run_command","command":"npm run build"}',
-    '{"tool":"finish","answer":"resumo do que foi feito"}',
+    ...TOOL_HELP,
     "",
-    "Regras: comece com plan. Caminhos são relativos à raiz. Nunca use `..`. Um passo por resposta.",
-    "Ao terminar, chame finish com um resumo curto e honesto. Se algo falhar, corrija a causa antes de desistir.",
+    "Regras:",
+    "- Trabalhe até concluir a tarefa. Não existe limite de passos: encadeie quantas ações forem necessárias.",
+    "- Leia antes de escrever. Se um comando falhar, leia o erro, corrija a causa e rode de novo.",
+    "- Use caminhos relativos e nunca `..`.",
+    "- Quando precisar de informação atual, use web_search antes de inventar.",
+    "- Só chame finish quando a tarefa estiver realmente concluída, com um resumo curto e honesto do que mudou.",
+    "- Se algo continuar impossível, diga exatamente o que bloqueou e o que você tentou.",
     "",
     "Skills disponíveis:",
     skillBlock,
@@ -182,6 +233,10 @@ export interface AgentRunResult {
   answer: string;
 }
 
+/** Sem teto de 14 ações: 600 passos e 45 minutos é só uma trava de segurança. */
+const MAX_ACTIONS = 600;
+const MAX_RUNTIME_MS = 45 * 60 * 1000;
+
 export async function runAgentTask(
   options: AgentRunOptions,
   events: {
@@ -201,15 +256,25 @@ export async function runAgentTask(
   ];
 
   let answer = "";
-  for (let round = 0; round < 14; round += 1) {
+  const startedAt = Date.now();
+
+  for (let round = 0; round < MAX_ACTIONS; round += 1) {
     if (cancelled()) {
       const message = "Execução interrompida por você.";
       log("error", message);
       return { ok: false, answer: message };
     }
+    if (Date.now() - startedAt > MAX_RUNTIME_MS) {
+      answer = "Parei por tempo (45 min de execução). O que já foi feito está na pasta; peça para continuar de onde parou.";
+      log("answer", answer);
+      return { ok: false, answer };
+    }
+
     const result = await runBrain(history, brain);
+    if (result.thinking) log("think", result.thinking.slice(0, 4000));
     if (result.provider === "local") {
-      const message = "Nenhum provedor configurado. Configure OpenRouter, Groq ou Mistral em Configurações para o agente executar.";
+      const message =
+        "Nenhum provedor configurado. Configure OpenRouter, Claude, OpenAI ou um endpoint compatível em Configurações para o agente executar.";
       log("error", message);
       return { ok: false, answer: message };
     }
@@ -223,14 +288,14 @@ export async function runAgentTask(
     }
 
     const tool = action.tool;
-    log("tool", `${tool} ${action.path ?? action.command ?? ""}`.trim());
+    log("tool", `${tool} ${action.path ?? action.command ?? action.query ?? ""}`.trim());
     let observation = "";
 
     try {
       if (tool === "plan") {
         const rawSteps = Array.isArray(action.steps) ? action.steps : [];
         steps.length = 0;
-        rawSteps.slice(0, 12).forEach((item, index) => {
+        rawSteps.slice(0, 20).forEach((item, index) => {
           const title =
             typeof item === "string"
               ? item
@@ -256,21 +321,54 @@ export async function runAgentTask(
         const path = String(action.path ?? "");
         if (path.includes("..")) throw new Error("Caminho fora da raiz de trabalho.");
         const content = bridge ? await bridge.readFile(path) : await readWorkspaceFile(path);
-        observation = content.slice(0, 8000);
+        observation = content.slice(0, 12000);
       } else if (tool === "write_file") {
         const path = String(action.path ?? "");
         if (path.includes("..")) throw new Error("Caminho fora da raiz de trabalho.");
         const content = String(action.content ?? "");
-        if (bridge) await bridge.writeFile(path, content);
-        else await writeWorkspaceFile(path, content);
+        if (bridge) {
+          const ok = await bridge.writeFile(path, content);
+          if (!ok) throw new Error("O sistema recusou a gravação nesse caminho.");
+        } else await writeWorkspaceFile(path, content);
         observation = `Arquivo ${path} gravado (${content.length} caracteres).`;
+      } else if (tool === "edit_file") {
+        const path = String(action.path ?? "");
+        if (path.includes("..")) throw new Error("Caminho fora da raiz de trabalho.");
+        const find = String(action.find ?? "");
+        const replace = String(action.replace ?? "");
+        if (!find) throw new Error("Informe o trecho exato em `find`.");
+        const current = bridge ? await bridge.readFile(path) : await readWorkspaceFile(path);
+        if (!current.includes(find)) throw new Error(`Trecho não encontrado em ${path}. Leia o arquivo de novo.`);
+        const next = current.replace(find, replace);
+        if (bridge) {
+          const ok = await bridge.writeFile(path, next);
+          if (!ok) throw new Error("O sistema recusou a gravação nesse caminho.");
+        } else await writeWorkspaceFile(path, next);
+        observation = `${path} atualizado.`;
       } else if (tool === "run_command") {
         if (!bridge) throw new Error("Terminal disponível só no app desktop.");
         const command = String(action.command ?? "");
         const result = await bridge.runCommand(command);
-        observation = [`exit=${result.code}`, result.stdout.slice(0, 3000), result.stderr.slice(0, 2000)]
+        observation = [`exit=${result.code}`, result.stdout.slice(0, 8000), result.stderr.slice(0, 4000)]
           .filter(Boolean)
           .join("\n");
+      } else if (tool === "web_search") {
+        const query = String(action.query ?? action.q ?? "");
+        if (!query.trim()) throw new Error("Informe a busca em `query`.");
+        const bundle = await gatherContext(query, { openrouterKey: brain.keys.openrouter });
+        observation = bundle.hits
+          .slice(0, 6)
+          .map((hit, index) => `${index + 1}. ${hit.title} — ${hit.url}\n${hit.snippet}`)
+          .join("\n\n");
+        if (bundle.pages.length) {
+          observation +=
+            "\n\n--- páginas ---\n" +
+            bundle.pages
+              .slice(0, 3)
+              .map((page) => `# ${page.title} (${page.url})\n${page.text.slice(0, 3000)}`)
+              .join("\n\n");
+        }
+        if (!observation.trim()) observation = "A busca não devolveu resultados.";
       } else if (tool === "finish") {
         answer = String(action.answer ?? "Tarefa concluída.");
         log("answer", answer);
@@ -292,12 +390,12 @@ export async function runAgentTask(
       }
     }
 
-    log("result", observation.slice(0, 800));
+    log("result", observation.slice(0, 1200));
     history.push({ role: "assistant", content: result.text });
-    history.push({ role: "user", content: `Resultado da ferramenta ${tool}:\n${observation.slice(0, 4000)}` });
+    history.push({ role: "user", content: `Resultado da ferramenta ${tool}:\n${observation.slice(0, 8000)}` });
   }
 
-  answer = answer || "O agente parou no limite de 14 ações. Veja o log e continue a partir daí.";
+  answer = answer || "A tarefa ficou longa demais para uma única execução. Peça para continuar: eu retomo de onde parei.";
   log("answer", answer);
   return { ok: false, answer };
 }

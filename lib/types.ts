@@ -1,12 +1,24 @@
 export type ViewId = "chat" | "studio" | "agent" | "settings" | "credits";
 
-export type ProviderId = "openrouter" | "groq" | "mistral";
+export type ProviderId = "openrouter" | "groq" | "mistral" | "anthropic" | "openai" | "custom";
 
 export interface ApiKeys {
   openrouter: string;
   groq: string;
   mistral: string;
   composio: string;
+  /** Claude (Anthropic) — aceita também um proxy compatível com OpenAI. */
+  anthropic: string;
+  /** OpenAI / Codex. */
+  openai: string;
+  /** Qualquer endpoint compatível com OpenAI (free-claude-code, LiteLLM, local). */
+  custom: string;
+}
+
+/** Endpoint, modelo e caminho de qualquer provedor compatível com OpenAI. */
+export interface EndpointConfig {
+  baseUrl: string;
+  model: string;
 }
 
 export type ThemeId = "obsidian" | "midnight" | "light";
@@ -35,6 +47,12 @@ export interface AppSettings {
   sfxVolume: number;
   /** Modelo fixado da OpenRouter, ou `auto` para o ranking por capacidade. */
   openrouterModel?: string;
+  /** Modelos e endpoint dos provedores configuráveis (Claude, OpenAI, compatível). */
+  endpoints: {
+    anthropic: EndpointConfig;
+    openai: EndpointConfig;
+    custom: EndpointConfig;
+  };
   profile: { name: string; email: string };
   supabase: SupabaseConfig;
   github: GithubConfig;
@@ -47,6 +65,8 @@ export interface ChatMessage {
   provider?: string;
   /** Modelo que respondeu, já formatado para o selo ("DeepSeek R1"). */
   model?: string;
+  /** Raciocínio completo do modelo, quando o provedor devolve. */
+  thinking?: string;
   sources?: Array<{ title: string; url: string }>;
   at: number;
 }
@@ -106,12 +126,26 @@ export interface StudioProject {
   sfxEnabled: boolean;
 }
 
+export interface WorkspaceInfo {
+  root: string;
+  name: string;
+  canceled?: boolean;
+}
+
 export interface NativeBridge {
   platform: string;
   runCommand: (command: string) => Promise<{ code: number; stdout: string; stderr: string }>;
   listDir: (path: string) => Promise<Array<{ name: string; isDir: boolean }>>;
   readFile: (path: string) => Promise<string>;
   writeFile: (path: string, content: string) => Promise<boolean>;
+  deletePath?: (path: string) => Promise<boolean>;
+  /** Abre o seletor de pasta do sistema e devolve a nova raiz. */
+  chooseWorkspace?: () => Promise<WorkspaceInfo>;
+  getWorkspace?: () => Promise<WorkspaceInfo>;
+  /** Skills globais do projeto (Claude Code, Codex, Freebuff, OpenCode). */
+  readSkills?: () => Promise<SkillDefinition[]>;
+  openExternal?: (url: string) => Promise<boolean>;
+  systemInfo?: () => Promise<{ platform: string; host: string; home: string }>;
   homeDir?: () => Promise<string>;
   onAuthCallback?: (callback: (url: string) => void) => () => void;
 }
@@ -125,7 +159,7 @@ export interface AgentStep {
 
 export interface AgentLogEntry {
   id: string;
-  kind: "plan" | "tool" | "result" | "answer" | "error";
+  kind: "plan" | "tool" | "result" | "answer" | "error" | "think";
   text: string;
   at: number;
 }

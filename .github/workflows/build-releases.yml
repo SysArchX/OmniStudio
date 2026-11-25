@@ -110,6 +110,8 @@ jobs:
       - name: Sincronizar Capacitor
         run: |
           npx cap add android || true
+          npx --yes @capacitor/assets generate --android \
+            --iconBackgroundColor '#09090b' --iconBackgroundColorDark '#09090b' || true
           npx cap sync android
           python3 scripts/inject-url-scheme.py android
       - name: Assinar com chave gerada no job
@@ -165,6 +167,8 @@ jobs:
       - name: Sincronizar Capacitor iOS
         run: |
           npx cap add ios
+          npx --yes @capacitor/assets generate --ios \
+            --iconBackgroundColor '#09090b' --iconBackgroundColorDark '#09090b' || true
           npx cap sync ios
           python3 scripts/inject-url-scheme.py ios
       - name: Compilar sem assinatura

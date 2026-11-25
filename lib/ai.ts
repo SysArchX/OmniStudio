@@ -1,4 +1,4 @@
-import type { ApiKeys, ProviderId } from "./types";
+import type { ApiKeys, AppSettings, EndpointConfig, ProviderId } from "./types";
 
 export interface BrainMessage {
   role: "system" | "user" | "assistant";
@@ -12,6 +12,8 @@ export interface BrainConfig {
   preferred?: ProviderId;
   /** Modelo fixado da OpenRouter ou `auto` para a ordem por capacidade. */
   openrouterModel?: string;
+  /** Endpoint e modelo de Claude, OpenAI/Codex e de um provedor compatível. */
+  endpoints?: AppSettings["endpoints"];
 }
 
 export interface BrainResult {
@@ -21,6 +23,8 @@ export interface BrainResult {
   model?: string;
   /** Rótulo curto para o selo do chat ("DeepSeek R1", "Llama 3.3 70B"). */
   modelLabel?: string;
+  /** Raciocínio completo devolvido pelo modelo, quando existir. */
+  thinking?: string;
   attempts: Array<{ provider: ProviderId; ok: boolean; detail?: string }>;
 }
 
@@ -39,19 +43,40 @@ export class ProviderError extends Error {
   }
 }
 
-export const PROVIDER_ORDER: ProviderId[] = ["openrouter", "groq", "mistral"];
+export const PROVIDER_ORDER: ProviderId[] = [
+  "openrouter",
+  "groq",
+  "mistral",
+  "anthropic",
+  "openai",
+  "custom",
+];
 
 export const PROVIDER_LABEL: Record<ProviderId, string> = {
   openrouter: "OpenRouter",
   groq: "Groq",
   mistral: "Mistral",
+  anthropic: "Claude",
+  openai: "OpenAI / Codex",
+  custom: "Compatível OpenAI",
 };
 
 export const PROVIDER_MODEL: Record<ProviderId, string> = {
   openrouter: "openrouter/free",
   groq: "llama-3.3-70b-versatile",
   mistral: "mistral-small-latest",
+  anthropic: "claude-sonnet-4-5",
+  openai: "gpt-4.1-mini",
+  custom: "modelo do endpoint",
 };
+
+/** O modelo real de Claude, OpenAI e compatível vem de Configurações. */
+export function modelForProvider(provider: ProviderId, endpoints?: AppSettings["endpoints"]) {
+  if (provider === "anthropic") return endpoints?.anthropic.model?.trim() || PROVIDER_MODEL.anthropic;
+  if (provider === "openai") return endpoints?.openai.model?.trim() || PROVIDER_MODEL.openai;
+  if (provider === "custom") return endpoints?.custom.model?.trim() || "";
+  return PROVIDER_MODEL[provider];
+}
 
 import { modelLabelOf, openrouterCandidates } from "./model-catalog";
 
@@ -62,6 +87,9 @@ const KEY_HELP: Record<ProviderId, string> = {
   openrouter: "openrouter.ai/keys",
   groq: "console.groq.com/keys",
   mistral: "console.mistral.ai/api-keys",
+  anthropic: "console.anthropic.com/settings/keys",
+  openai: "platform.openai.com/api-keys",
+  custom: "github.com/alishahryar1/free-claude-code",
 };
 
 export function providerKeyHelp(provider: ProviderId) {
@@ -108,9 +136,22 @@ function toPlain(messages: BrainMessage[]) {
   return messages.map((message) => ({ role: message.role, content: message.content }));
 }
 
-function readChoice(text: string) {
-  const parsed = JSON.parse(text) as { choices?: Array<{ message?: { content?: string } }> };
-  return parsed.choices?.[0]?.message?.content?.trim() ?? "";
+/** Conteúdo e raciocínio da resposta; provedores devolvem o pensamento em campos diferentes. */
+function readReply(text: string) {
+  const parsed = JSON.parse(text) as {
+    choices?: Array<{
+      message?: { content?: string; reasoning?: string; reasoning_content?: string };
+      reasoning?: string;
+    }>;
+  };
+  const choice = parsed.choices?.[0];
+  const thinking = (
+    choice?.message?.reasoning ??
+    choice?.message?.reasoning_content ??
+    choice?.reasoning ??
+    ""
+  ).trim();
+  return { text: choice?.message?.content?.trim() ?? "", thinking };
 }
 
 async function callGroq(messages: BrainMessage[], key: string) {
@@ -120,9 +161,9 @@ async function callGroq(messages: BrainMessage[], key: string) {
     { Authorization: `Bearer ${key}` },
   );
   if (!result.ok) throw new ProviderError("groq", classify(result.status), result.text.slice(0, 240), result.status);
-  const text = readChoice(result.text);
-  if (!text) throw new ProviderError("groq", "other", "Resposta vazia do provedor.");
-  return text;
+  const reply = readReply(result.text);
+  if (!reply.text) throw new ProviderError("groq", "other", "Resposta vazia do provedor.");
+  return reply;
 }
 
 async function callOpenRouterOnce(messages: BrainMessage[], key: string, model: string) {
@@ -136,9 +177,9 @@ async function callOpenRouterOnce(messages: BrainMessage[], key: string, model: 
     },
   );
   if (!result.ok) throw new ProviderError("openrouter", classify(result.status), result.text.slice(0, 240), result.status);
-  const text = readChoice(result.text);
-  if (!text) throw new ProviderError("openrouter", "other", "Resposta vazia do provedor.");
-  return text;
+  const reply = readReply(result.text);
+  if (!reply.text) throw new ProviderError("openrouter", "other", "Resposta vazia do provedor.");
+  return reply;
 }
 
 async function callMistral(messages: BrainMessage[], key: string) {
@@ -148,9 +189,40 @@ async function callMistral(messages: BrainMessage[], key: string) {
     { Authorization: `Bearer ${key}` },
   );
   if (!result.ok) throw new ProviderError("mistral", classify(result.status), result.text.slice(0, 240), result.status);
-  const text = readChoice(result.text);
-  if (!text) throw new ProviderError("mistral", "other", "Resposta vazia do provedor.");
-  return text;
+  const reply = readReply(result.text);
+  if (!reply.text) throw new ProviderError("mistral", "other", "Resposta vazia do provedor.");
+  return reply;
+}
+
+/**
+ * Qualquer endpoint compatível com OpenAI: Claude, OpenAI/Codex, free-claude-code,
+ * LiteLLM ou um servidor local. O caminho final é sempre `/chat/completions`.
+ */
+async function callCompatible(
+  provider: ProviderId,
+  messages: BrainMessage[],
+  key: string,
+  endpoint: EndpointConfig,
+) {
+  const base = endpoint.baseUrl.trim().replace(/\/+$/, "");
+  const model = endpoint.model.trim();
+  if (!base) throw new ProviderError(provider, "other", "Informe a URL base do endpoint em Configurações.");
+  if (!model) throw new ProviderError(provider, "other", "Informe o modelo do endpoint em Configurações.");
+  const url = base.endsWith("/chat/completions") ? base : `${base}/chat/completions`;
+  const result = await postJson(
+    url,
+    { model, messages: toPlain(messages), temperature: 0.7, max_tokens: 4096 },
+    {
+      Authorization: `Bearer ${key}`,
+      ...(provider === "anthropic" ? { "anthropic-version": "2023-06-01" } : {}),
+    },
+  );
+  if (!result.ok) {
+    throw new ProviderError(provider, classify(result.status), result.text.slice(0, 240), result.status);
+  }
+  const reply = readReply(result.text);
+  if (!reply.text) throw new ProviderError(provider, "other", "Resposta vazia do provedor.");
+  return reply;
 }
 
 /** 429, 402 e 5xx pedem próxima tentativa; 404/400 indicam modelo fora do catálogo. */
@@ -160,15 +232,22 @@ function shouldCascade(error: unknown) {
   return [400, 402, 404, 408, 429, 502, 503, 504].includes(error.status);
 }
 
+interface Answer {
+  text: string;
+  model: string;
+  thinking?: string;
+}
+
 async function callOpenRouter(
   messages: BrainMessage[],
   key: string,
   pinned?: string | null,
-): Promise<{ text: string; model: string }> {
+): Promise<Answer> {
   let lastError: unknown;
   for (const model of await openrouterCandidates(pinned)) {
     try {
-      return { text: await callOpenRouterOnce(messages, key, model), model };
+      const reply = await callOpenRouterOnce(messages, key, model);
+      return { text: reply.text, model, thinking: reply.thinking };
     } catch (error) {
       lastError = error;
       if (!shouldCascade(error)) throw error;
@@ -182,9 +261,21 @@ async function callProvider(
   messages: BrainMessage[],
   key: string,
   pinned?: string | null,
-): Promise<{ text: string; model: string }> {
-  if (provider === "groq") return { text: await callGroq(messages, key), model: PROVIDER_MODEL.groq };
-  if (provider === "mistral") return { text: await callMistral(messages, key), model: PROVIDER_MODEL.mistral };
+  endpoints?: AppSettings["endpoints"],
+): Promise<Answer> {
+  if (provider === "groq") {
+    const reply = await callGroq(messages, key);
+    return { text: reply.text, model: PROVIDER_MODEL.groq, thinking: reply.thinking };
+  }
+  if (provider === "mistral") {
+    const reply = await callMistral(messages, key);
+    return { text: reply.text, model: PROVIDER_MODEL.mistral, thinking: reply.thinking };
+  }
+  if (provider === "anthropic" || provider === "openai" || provider === "custom") {
+    const endpoint = endpoints?.[provider] ?? { baseUrl: "", model: "" };
+    const reply = await callCompatible(provider, messages, key, endpoint);
+    return { text: reply.text, model: endpoint.model, thinking: reply.thinking };
+  }
   return callOpenRouter(messages, key, pinned);
 }
 
@@ -215,13 +306,20 @@ export async function runBrain(messages: BrainMessage[], config: BrainConfig): P
     const key = config.keys[provider]?.trim();
     if (!key) continue;
     try {
-      const answered = await callProvider(provider, withSystem, key, config.openrouterModel);
+      const answered = await callProvider(
+        provider,
+        withSystem,
+        key,
+        config.openrouterModel,
+        config.endpoints,
+      );
       attempts.push({ provider, ok: true });
       return {
         text: answered.text,
         provider,
         model: answered.model,
-        modelLabel: modelLabelOf(answered.model),
+        modelLabel: provider === "openrouter" ? modelLabelOf(answered.model) : answered.model,
+        thinking: answered.thinking || undefined,
         attempts,
       };
     } catch (error) {
@@ -277,7 +375,11 @@ export function looksLikeSearchQuery(prompt: string) {
   return /\?|(quem|qual|quais|quando|onde|como|quanto|quantos|quantas|por que|porque|o que|pesquis|noticia|notícia|preço|preco|versão|versao|documenta|lanç|lançamento|hoje|agora)/.test(text);
 }
 
-export async function testProvider(provider: ProviderId, key: string): Promise<ProviderTestResult> {
+export async function testProvider(
+  provider: ProviderId,
+  key: string,
+  endpoints?: AppSettings["endpoints"],
+): Promise<ProviderTestResult> {
   if (!key.trim()) return { ok: false, status: "idle", message: "Nenhuma chave informada." };
   try {
     const answered = await callProvider(
@@ -287,11 +389,13 @@ export async function testProvider(provider: ProviderId, key: string): Promise<P
         { role: "user", content: "ping" },
       ],
       key.trim(),
+      null,
+      endpoints,
     );
     return {
       ok: true,
       status: "connected",
-      message: `Conectado com ${modelLabelOf(answered.model)}. Resposta: ${answered.text.slice(0, 20)}`,
+      message: `Conectado com ${provider === "openrouter" ? modelLabelOf(answered.model) : answered.model}. Resposta: ${answered.text.slice(0, 20)}`,
     };
   } catch (error) {
     if (error instanceof ProviderError) {

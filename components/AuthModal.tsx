@@ -4,7 +4,14 @@ import { useEffect, useState } from "react";
 import { KeyRound, Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth-store";
 import { useSettings } from "@/lib/settings-store";
-import { isNativeShell, signInWithPassword, signUpWithPassword } from "@/lib/auth";
+import {
+  completeOAuthCallback,
+  googleLoginUrl,
+  isNativeShell,
+  openExternalLink,
+  signInWithPassword,
+  signUpWithPassword,
+} from "@/lib/auth";
 import { Modal } from "./ui";
 import PairingCard from "./PairingCard";
 
@@ -41,6 +48,9 @@ export default function AuthModal() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [waiting, setWaiting] = useState(false);
+  const [loginUrl, setLoginUrl] = useState("");
+  const [callbackUrl, setCallbackUrl] = useState("");
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!authOpen) {
@@ -49,6 +59,9 @@ export default function AuthModal() {
       setBusy(false);
       setWaiting(false);
       setPassword("");
+      setLoginUrl("");
+      setCallbackUrl("");
+      setCopied(false);
     }
   }, [authOpen]);
 
@@ -57,12 +70,40 @@ export default function AuthModal() {
     setBusy(true);
     try {
       await signIn();
+      // No app desktop o link fica visível dentro da janela: se a folha externa
+      // não abrir, dá para copiar e colar no navegador.
       if (isNativeShell()) {
-        // No app nativo a folha embutida assume; o modal espera o deep link.
+        setLoginUrl(await googleLoginUrl(settings.supabase));
         setWaiting(true);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível abrir o Google.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(loginUrl);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError("Copie o link manualmente: selecione o texto do campo acima.");
+    }
+  };
+
+  const finishManual = async () => {
+    const raw = callbackUrl.trim();
+    if (!raw) return;
+    setError("");
+    setBusy(true);
+    try {
+      const session = await completeOAuthCallback(raw, settings.supabase);
+      adoptSession(session);
+      closeAuth();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não consegui concluir com esse link.");
     } finally {
       setBusy(false);
     }
@@ -149,10 +190,90 @@ export default function AuthModal() {
               Criar conta com e-mail e senha
             </button>
 
+            {isNativeShell() ? (
+              <div className="space-y-2 rounded-lg border p-2.5" style={{ borderColor: "var(--border)" }}>
+                <p className="text-[10.5px] font-medium">Login com Google sem travar</p>
+                <p className="text-[10px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+                  Clique em “Abrir no navegador”. Se a janela do Google não abrir no app, copie o endereço e cole
+                  você mesmo no navegador.
+                </p>
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const url = loginUrl || (await googleLoginUrl(settings.supabase));
+                        setLoginUrl(url);
+                        await openExternalLink(url);
+                        setWaiting(true);
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Não consegui gerar o link.");
+                      }
+                    }}
+                    className="btn flex-1 justify-center !text-[11px]"
+                  >
+                    Abrir no navegador
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const url = loginUrl || (await googleLoginUrl(settings.supabase));
+                        setLoginUrl(url);
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Não consegui gerar o link.");
+                      }
+                    }}
+                    className="btn btn-ghost !text-[11px]"
+                  >
+                    Gerar link
+                  </button>
+                </div>
+                {loginUrl ? (
+                  <>
+                    <div className="flex gap-1.5">
+                      <input
+                        readOnly
+                        value={loginUrl}
+                        onFocus={(event) => event.currentTarget.select()}
+                        aria-label="Endereço do login"
+                        className="input mono !h-8 min-w-0 flex-1 !text-[10px]"
+                      />
+                      <button type="button" onClick={() => void copyLink()} className="btn shrink-0 !text-[10.5px]">
+                        {copied ? "Copiado" : "Copiar"}
+                      </button>
+                    </div>
+                    <p className="text-[10px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+                      Depois de entrar, o app volta sozinho. Se o navegador parar numa página de endereço
+                      (começa com <span className="mono">127.0.0.1</span> ou <span className="mono">omnistudio://</span>),
+                      copie esse endereço inteiro e cole abaixo.
+                    </p>
+                    <div className="flex gap-1.5">
+                      <input
+                        value={callbackUrl}
+                        onChange={(event) => setCallbackUrl(event.target.value)}
+                        placeholder="Cole aqui o endereço de retorno"
+                        aria-label="Endereço de retorno do login"
+                        className="input mono !h-8 min-w-0 flex-1 !text-[10px]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void finishManual()}
+                        disabled={!callbackUrl.trim() || busy}
+                        className="btn btn-primary shrink-0 !text-[10.5px] disabled:opacity-60"
+                      >
+                        Entrar
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+
             {waiting ? (
               <p className="flex items-center justify-center gap-1.5 text-center text-[10.5px]" style={{ color: "var(--muted)" }}>
                 <Loader2 className="h-3 w-3 animate-spin" />
-                Conclua o login na janela do Google para voltar ao app.
+                Conclua o login no Google; o app entra sozinho quando o retorno chegar.
               </p>
             ) : (
               <p className="text-center text-[10px] leading-relaxed" style={{ color: "var(--muted-2)" }}>

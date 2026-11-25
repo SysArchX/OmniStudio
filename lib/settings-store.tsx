@@ -22,7 +22,7 @@ export const ACCENTS = [
 ];
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  keys: { openrouter: "", groq: "", mistral: "", composio: "" },
+  keys: { openrouter: "", groq: "", mistral: "", composio: "", anthropic: "", openai: "", custom: "" },
   fallback: true,
   theme: "obsidian",
   accent: "#e4e4e7",
@@ -32,6 +32,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   rate: 1.02,
   sfxVolume: 0.6,
   openrouterModel: "auto",
+  endpoints: {
+    anthropic: { baseUrl: "https://api.anthropic.com/v1", model: "claude-sonnet-4-5" },
+    openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini" },
+    custom: { baseUrl: "", model: "" },
+  },
   profile: { name: "SysArchX", email: "" },
   supabase: { 
     url: "https://xwbpajtyqhzkxvoxnsyp.supabase.co",
@@ -102,6 +107,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           ...DEFAULT_SETTINGS,
           ...saved,
           keys: { ...DEFAULT_SETTINGS.keys, ...(saved.keys ?? {}) },
+          endpoints: {
+            anthropic: { ...DEFAULT_SETTINGS.endpoints.anthropic, ...(saved.endpoints?.anthropic ?? {}) },
+            openai: { ...DEFAULT_SETTINGS.endpoints.openai, ...(saved.endpoints?.openai ?? {}) },
+            custom: { ...DEFAULT_SETTINGS.endpoints.custom, ...(saved.endpoints?.custom ?? {}) },
+          },
           profile: { ...DEFAULT_SETTINGS.profile, ...(saved.profile ?? {}) },
           supabase: { ...DEFAULT_SETTINGS.supabase, ...(saved.supabase ?? {}) },
           github: { ...DEFAULT_SETTINGS.github, ...(saved.github ?? {}) },

@@ -1,6 +1,6 @@
 import type { NativeBridge } from "./types";
 
-export type PlatformKind = "desktop" | "android" | "web";
+export type PlatformKind = "desktop" | "android" | "ios" | "web";
 
 export interface PlatformInfo {
   kind: PlatformKind;
@@ -32,7 +32,7 @@ export function detectPlatform(): PlatformInfo {
     return { kind: "android", label: "Android", native: true, bridge: null };
   }
   if (capacitorPlatform === "ios") {
-    return { kind: "android", label: "iOS", native: true, bridge: null };
+    return { kind: "ios", label: "iOS", native: true, bridge: null };
   }
   return { kind: "web", label: "Navegador", native: false, bridge: null };
 }

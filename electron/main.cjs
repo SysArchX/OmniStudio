@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, protocol, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, protocol, shell, dialog } = require("electron");
 
 const AUTH_SCHEME = "omnistudio";
 const LOOPBACK_PORT = Number(process.env.OMNISTUDIO_AUTH_PORT || 48123);
@@ -12,20 +12,50 @@ const { spawn } = require("node:child_process");
 
 const OUT_DIR = path.join(__dirname, "..", "out");
 const DEV_URL = process.env.ELECTRON_START_URL;
-const ALLOWED = new Set([
-  "python",
-  "python3",
-  "node",
-  "npm",
-  "npx",
-  "git",
-  "ls",
-  "dir",
-  "cat",
-  "pacman",
-  "apt",
-  "arduino-cli",
-]);
+
+/** Raiz onde o agente trabalha: a pasta que o usuário escolheu. */
+let workspaceRoot = process.env.OMNISTUDIO_WORKSPACE || null;
+const MAX_OUTPUT = 400_000;
+const COMMAND_TIMEOUT = 180_000;
+
+/**
+ * Comandos destrutivos continuam bloqueados; o resto roda de verdade no shell,
+ * porque o agente precisa de pipes, `&&` e ferramentas fora de uma lista curta.
+ */
+const DESTRUCTIVE = [
+  /\brm\s+(-[a-z]*\s+)*-[a-z]*[rf]/i,
+  /\brmdir\s+\/s\b/i,
+  /\bdel\s+\/[fsq]/i,
+  /\bformat\s+[a-z]:/i,
+  /\bmkfs(\.|\s)/i,
+  /\bdiskpart\b/i,
+  /\bshutdown\b/i,
+  /\breboot\b/i,
+  /\breg\s+delete\b/i,
+  /\bcipher\s+\/w\b/i,
+  /:\(\)\s*\{/,
+];
+
+function commandBlocked(command) {
+  return DESTRUCTIVE.some((pattern) => pattern.test(command));
+}
+
+function workspace() {
+  if (!workspaceRoot) workspaceRoot = app.getPath("home");
+  return workspaceRoot;
+}
+
+/** Caminhos do agente são relativos à pasta escolhida e não podem sair dela. */
+function resolveInWorkspace(target) {
+  const raw = String(target ?? "").trim() || ".";
+  const root = workspace();
+  const resolved = path.isAbsolute(raw) ? path.normalize(raw) : path.resolve(root, raw);
+  const relative = path.relative(root, resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("Caminho fora da pasta de trabalho.");
+  }
+  return resolved;
+}
 
 protocol.registerSchemesAsPrivileged([
   { scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
@@ -72,6 +102,7 @@ function createWindow() {
     backgroundColor: "#09090b",
     autoHideMenuBar: true,
     title: "OmniStudio",
+    icon: path.join(__dirname, "..", "build", "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -176,44 +207,63 @@ app.on("open-url", (event, url) => {
   handleAuthUrl(url);
 });
 
+/* ------------------------------ pasta de trabalho ------------------------------ */
+
+ipcMain.handle("omni:getWorkspace", () => ({ root: workspace(), name: path.basename(workspace()) }));
+
+ipcMain.handle("omni:chooseWorkspace", async () => {
+  const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
+    title: "Escolher pasta de trabalho do agente",
+    defaultPath: workspace(),
+    properties: ["openDirectory", "createDirectory"],
+  });
+  if (result.canceled || !result.filePaths[0]) {
+    return { root: workspace(), name: path.basename(workspace()), canceled: true };
+  }
+  workspaceRoot = result.filePaths[0];
+  return { root: workspaceRoot, name: path.basename(workspaceRoot), canceled: false };
+});
+
+/* --------------------------------- terminal --------------------------------- */
+
 ipcMain.handle("omni:run", async (_event, command) => {
   if (typeof command !== "string" || !command.trim()) {
     return { code: 1, stdout: "", stderr: "Comando vazio." };
   }
-  if (/[;&|><`$]/.test(command)) {
-    return { code: 1, stdout: "", stderr: "Caracteres de encadeamento não são permitidos." };
-  }
-  const parts = command.trim().split(/\s+/);
-  const binary = parts[0];
-  if (!ALLOWED.has(binary)) {
-    return { code: 1, stdout: "", stderr: `Comando não permitido: ${binary}` };
+  if (commandBlocked(command)) {
+    return { code: 1, stdout: "", stderr: "Comando destrutivo bloqueado pelo OmniStudio." };
   }
   return new Promise((resolve) => {
-    const child = spawn(binary, parts.slice(1), {
-      cwd: app.getPath("home"),
-      timeout: 30000,
+    const child = spawn(command, {
+      cwd: workspace(),
+      shell: true,
+      timeout: COMMAND_TIMEOUT,
       windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: "utf-8", FORCE_COLOR: "0" },
     });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
-      if (stdout.length > 200000) child.kill();
+      if (stdout.length > MAX_OUTPUT) child.kill();
     });
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
+      if (stderr.length > MAX_OUTPUT) child.kill();
     });
     child.on("error", (error) => resolve({ code: 1, stdout, stderr: String(error.message) }));
     child.on("close", (code) => resolve({ code: code ?? 0, stdout, stderr }));
   });
 });
 
+/* --------------------------------- arquivos --------------------------------- */
+
 ipcMain.handle("omni:listDir", async (_event, target) => {
   try {
-    const dir = path.resolve(String(target || "."));
+    const dir = resolveInWorkspace(target);
     const entries = await fs.promises.readdir(dir, { withFileTypes: true });
     return entries
-      .filter((entry) => !entry.name.startsWith("."))
+      .filter((entry) => entry.name !== "node_modules" && entry.name !== ".git")
       .map((entry) => ({ name: entry.name, isDir: entry.isDirectory() }))
       .sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name))
       .slice(0, 400);
@@ -222,15 +272,9 @@ ipcMain.handle("omni:listDir", async (_event, target) => {
   }
 });
 
-function unsafePath(target) {
-  const value = String(target ?? "");
-  return !value || value.includes("..") || value.includes("\0");
-}
-
 ipcMain.handle("omni:readFile", async (_event, target) => {
-  if (unsafePath(target)) return "Caminho não permitido.";
   try {
-    const file = path.resolve(String(target));
+    const file = resolveInWorkspace(target);
     const stat = await fs.promises.stat(file);
     if (stat.size > 2 * 1024 * 1024) return "Arquivo maior que 2 MB.";
     return await fs.promises.readFile(file, "utf8");
@@ -240,15 +284,138 @@ ipcMain.handle("omni:readFile", async (_event, target) => {
 });
 
 ipcMain.handle("omni:writeFile", async (_event, target, content) => {
-  if (unsafePath(target)) return false;
   try {
-    const file = path.resolve(String(target));
-    await fs.promises.writeFile(file, String(content), "utf8");
+    const file = resolveInWorkspace(target);
+    await fs.promises.mkdir(path.dirname(file), { recursive: true });
+    await fs.promises.writeFile(file, String(content ?? ""), "utf8");
+    return true;
+  } catch (error) {
+    console.warn("Falha ao gravar", target, error.message);
+    return false;
+  }
+});
+
+ipcMain.handle("omni:deletePath", async (_event, target) => {
+  try {
+    const file = resolveInWorkspace(target);
+    if (file === workspace()) return false;
+    await fs.promises.rm(file, { recursive: true, force: true });
     return true;
   } catch {
     return false;
   }
 });
+
+/* ------------------------------------ skills -------------------------------- */
+
+function parseSkillFile(fileName, raw, source) {
+  const text = String(raw ?? "").replace(/\r\n/g, "\n");
+  if (!text.trim()) return null;
+  const match = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text);
+  const meta = match ? match[1] : "";
+  const body = (match ? match[2] : text).trim();
+  if (!body) return null;
+  const name =
+    /^name:\s*(.+)$/m.exec(meta)?.[1]?.trim() ||
+    /^#\s+(.+)$/m.exec(body)?.[1]?.trim() ||
+    String(fileName).replace(/\.md$/i, "");
+  const description =
+    /^description:\s*(.+)$/m.exec(meta)?.[1]?.trim() ||
+    body
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line && !line.startsWith("#")) ||
+    "";
+  return {
+    name: name.replace(/^["']|["']$/g, "").slice(0, 120),
+    description: description.replace(/^["']|["']$/g, "").slice(0, 400),
+    instructions: body.slice(0, 12000),
+    source,
+  };
+}
+
+/** Skills globais entendidas por Claude Code, Codex, Freebuff e OpenCode. */
+async function collectSkills() {
+  const root = workspace();
+  const found = [];
+  const seen = new Set();
+  const push = (skill) => {
+    if (!skill || seen.has(`${skill.name}|${skill.source}`)) return;
+    seen.add(`${skill.name}|${skill.source}`);
+    found.push(skill);
+  };
+
+  const skillDirs = [
+    ".agents/skills",
+    ".claude/skills",
+    ".codex/skills",
+    ".opencode/skills",
+    ".freebuff/skills",
+  ];
+
+  for (const relative of skillDirs) {
+    const dir = path.join(root, relative);
+    let entries = [];
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      for (const candidate of ["SKILL.md", "skill.md", "index.md"]) {
+        try {
+          const raw = await fs.promises.readFile(path.join(dir, entry.name, candidate), "utf8");
+          push(parseSkillFile(entry.name, raw, `${relative}/${entry.name}`));
+          break;
+        } catch {
+          /* tenta o próximo nome de arquivo */
+        }
+      }
+    }
+  }
+
+  const flatDirs = [".claude/commands", ".agents/commands", ".codex/prompts"];
+  for (const relative of flatDirs) {
+    const dir = path.join(root, relative);
+    try {
+      for (const entry of await fs.promises.readdir(dir, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+        const raw = await fs.promises.readFile(path.join(dir, entry.name), "utf8");
+        push(parseSkillFile(entry.name, raw, `${relative}/${entry.name}`));
+      }
+    } catch {
+      /* pasta opcional */
+    }
+  }
+
+  for (const file of ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"]) {
+    try {
+      const raw = await fs.promises.readFile(path.join(root, file), "utf8");
+      push(parseSkillFile(file, raw, file));
+    } catch {
+      /* arquivo opcional */
+    }
+  }
+
+  return found;
+}
+
+ipcMain.handle("omni:readSkills", () => collectSkills());
+
+/* --------------------------------- sistema --------------------------------- */
+
+ipcMain.handle("omni:openExternal", async (_event, url) => {
+  if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return false;
+  await shell.openExternal(url);
+  return true;
+});
+
+ipcMain.handle("omni:info", () => ({
+  platform: process.platform,
+  host: require("node:os").hostname(),
+  home: app.getPath("home"),
+}));
 
 app.whenReady().then(() => {
   registerProtocol();

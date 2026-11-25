@@ -15,16 +15,17 @@ import {
 } from "lucide-react";
 import { useSettings } from "@/lib/settings-store";
 import { useWorkspace } from "@/lib/workspace-store";
-import { COMPOSIO_DASHBOARD, COMPOSIO_TOOLKITS, getComposioKey, listConnectedToolkits, type ComposioToolkitStatus } from "@/lib/composio";
+import { COMPOSIO_TOOLKITS, getComposioKey, listConnectedToolkits, type ComposioToolkitStatus } from "@/lib/composio";
 import type { PlatformInfo } from "@/lib/platform";
 import { commandAllowed } from "@/lib/platform";
 import {
   currentWorkspaceName,
   fsAccessSupported,
   listTree,
+  loadProjectSkills,
   parseSkillFile,
   pickWorkspace,
-  readSkillsFromWorkspace,
+  resolveNativeRoot,
   runAgentTask,
   type TreeEntry,
 } from "@/lib/agent";
@@ -67,6 +68,7 @@ export default function AgentView({ platform }: { platform: PlatformInfo }) {
   const [remoteCommand, setRemoteCommand] = useState("");
   const [remoteCommands, setRemoteCommands] = useState<RemoteCommand[]>([]);
   const [showMarket, setShowMarket] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
 
   useEffect(() => {
     setInstalled(installedSkills());
@@ -123,8 +125,21 @@ export default function AgentView({ platform }: { platform: PlatformInfo }) {
   }, [webFs]);
 
   useEffect(() => {
-    setRoot(currentWorkspaceName() ?? (native ? "máquina local" : ""));
-  }, [native]);
+    if (!native) {
+      setRoot(currentWorkspaceName() ?? "");
+      return;
+    }
+    void resolveNativeRoot(bridge).then((value) => {
+      if (value) setRoot(value);
+    });
+  }, [native, bridge]);
+
+  // Skills globais: .agents, .claude, .codex, .opencode e AGENTS.md/CLAUDE.md.
+  useEffect(() => {
+    void loadProjectSkills(bridge).then((found) => {
+      if (found.length) setSkills(found);
+    });
+  }, [bridge]);
 
   useEffect(() => {
     if (!getComposioKey()) return;
@@ -141,11 +156,11 @@ export default function AgentView({ platform }: { platform: PlatformInfo }) {
   }, [logs.length]);
 
   const chooseFolder = async () => {
-    const name = await pickWorkspace();
+    const name = await pickWorkspace(bridge);
     if (!name) return;
     setRoot(name);
     await refreshTree();
-    setSkills(await readSkillsFromWorkspace());
+    setSkills(await loadProjectSkills(bridge));
   };
 
   const importSkill = async (file: File) => {
@@ -174,7 +189,7 @@ export default function AgentView({ platform }: { platform: PlatformInfo }) {
           bridge,
           rootLabel: root || "raiz do projeto",
           skills: [...skills, ...installedDefinitions()],
-          brain: { keys: settings.keys, fallback: settings.fallback },
+          brain: { keys: settings.keys, fallback: settings.fallback, endpoints: settings.endpoints },
           isCancelled: () => cancelRef.current,
         },
         {
@@ -213,10 +228,20 @@ export default function AgentView({ platform }: { platform: PlatformInfo }) {
           </p>
           {native ? (
             <div className="rounded-lg border px-2.5 py-2 text-[11.5px]" style={{ borderColor: "var(--border)" }}>
-              <p className="truncate font-medium">Máquina local</p>
+              <p className="mono truncate text-[10.5px] font-medium" title={root}>
+                {root || "Pasta padrão do usuário"}
+              </p>
               <p className="mt-0.5 text-[10.5px]" style={{ color: "var(--muted-2)" }}>
                 {commandHint}
               </p>
+              <button
+                type="button"
+                onClick={() => void chooseFolder()}
+                className="btn btn-ghost mt-1.5 w-full justify-center !text-[10.5px]"
+              >
+                <FolderOpen className="h-3 w-3" />
+                Trocar pasta
+              </button>
             </div>
           ) : (
             <button
@@ -428,14 +453,15 @@ export default function AgentView({ platform }: { platform: PlatformInfo }) {
           )}
         </div>
 
+        {getComposioKey() ? (
         <div className="mb-3">
           <div className="mb-1.5 flex items-center justify-between">
             <p className="text-[10px] font-medium uppercase tracking-wide" style={{ color: "var(--muted-2)" }}>
-              Composio
+              Apps conectados
             </p>
-            <a href={COMPOSIO_DASHBOARD} target="_blank" rel="noreferrer" className="text-[10px] underline decoration-dotted" style={{ color: "var(--muted-2)" }}>
-              conectar
-            </a>
+            <span className="text-[10px]" style={{ color: "var(--muted-2)" }}>
+              dentro do app
+            </span>
           </div>
           <div className="space-y-1">
             {toolkits.map((toolkit) => (
@@ -453,12 +479,8 @@ export default function AgentView({ platform }: { platform: PlatformInfo }) {
               </div>
             ))}
           </div>
-          {!getComposioKey() ? (
-            <p className="mt-1 text-[10px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
-              Informe a chave em Configurações para ativar.
-            </p>
-          ) : null}
         </div>
+        ) : null}
 
         <div className="min-h-0 flex-1">
           <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide" style={{ color: "var(--muted-2)" }}>
@@ -517,13 +539,25 @@ export default function AgentView({ platform }: { platform: PlatformInfo }) {
 
             {logs.length ? (
               <div className="panel overflow-hidden">
-                <div
-                  className="flex items-center gap-2 border-b px-3.5 py-2 text-[11px] font-medium"
+                <button
+                  type="button"
+                  onClick={() => setShowLogs((prev) => !prev)}
+                  className="flex w-full items-center gap-2 border-b px-3.5 py-2 text-left text-[11px] font-medium"
                   style={{ borderColor: "var(--border)" }}
+                  aria-expanded={showLogs}
                 >
                   <Terminal className="h-3.5 w-3.5" />
-                  Execução
-                </div>
+                  {showLogs ? "Detalhes técnicos" : "Ver detalhes técnicos"}
+                  <span className="ml-auto text-[10px]" style={{ color: "var(--muted-2)" }}>
+                    {logs.filter((entry) => entry.kind === "tool").length} ações
+                  </span>
+                </button>
+                {!showLogs && logs.length ? (
+                  <p className="truncate px-3.5 py-2 text-[10.5px]" style={{ color: "var(--muted)" }}>
+                    {logs[logs.length - 1].kind} · {logs[logs.length - 1].text.slice(0, 120)}
+                  </p>
+                ) : null}
+                {showLogs ? (
                 <div className="max-h-[340px] overflow-y-auto px-3.5 py-2.5 font-mono text-[10.5px] leading-relaxed">
                   {logs.map((entry) => (
                     <p
@@ -545,8 +579,9 @@ export default function AgentView({ platform }: { platform: PlatformInfo }) {
                   ))}
                   <div ref={logEnd} />
                 </div>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
+          ) : null}
 
             {answer ? (
               <div className="panel p-3.5">

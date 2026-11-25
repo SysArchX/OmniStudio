@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Globe, Loader2, MessageSquarePlus, Sparkles } from "lucide-react";
 import { useSettings } from "@/lib/settings-store";
 import { useAuth } from "@/lib/auth-store";
@@ -42,6 +42,8 @@ export default function ChatView() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  /** Mensagens enviadas enquanto o agente trabalha; saem em ordem ao terminar. */
+  const [queue, setQueue] = useState<string[]>([]);
   const [webEnabled, setWebEnabled] = useState(true);
   const [preferred, setPreferred] = useState<ProviderId>("openrouter");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -61,11 +63,8 @@ export default function ChatView() {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [messages.length, busy]);
 
-  const send = async () => {
-    const prompt = input.trim();
-    if (!prompt || busy) return;
+  const runPrompt = useCallback(async (prompt: string) => {
     setBusy(true);
-    setInput("");
     setStatus(null);
 
     const conversationId = active?.id ?? createConversation();
@@ -109,6 +108,7 @@ export default function ChatView() {
           fallback: settings.fallback,
           preferred,
           openrouterModel: settings.openrouterModel,
+          endpoints: settings.endpoints,
         },
       );
 
@@ -118,6 +118,7 @@ export default function ChatView() {
         content: result.text,
         provider: result.provider,
         model: result.modelLabel ?? (result.provider === "local" ? "Local" : undefined),
+        thinking: result.thinking,
         sources: found.length ? found : undefined,
         at: Date.now(),
       };
@@ -134,7 +135,29 @@ export default function ChatView() {
       setBusy(false);
       setStatus(null);
     }
+  }, [active, createConversation, links.length, patchConversation, preferred, setSources, settings, webEnabled]);
+
+  /** Com o agente ocupado, a mensagem entra na fila em vez de ser perdida. */
+  const send = () => {
+    const prompt = input.trim();
+    if (!prompt) return;
+    setInput("");
+    if (busy) {
+      setQueue((prev) => [...prev, prompt]);
+      return;
+    }
+    void runPrompt(prompt);
   };
+
+  const runRef = useRef(runPrompt);
+  runRef.current = runPrompt;
+
+  useEffect(() => {
+    if (busy || queue.length === 0) return;
+    const [next, ...rest] = queue;
+    setQueue(rest);
+    void runRef.current(next);
+  }, [busy, queue]);
 
   const empty = messages.length === 0;
   const available = PROVIDER_ORDER.filter((provider) => settings.keys[provider]?.trim());
@@ -219,6 +242,19 @@ export default function ChatView() {
                   </p>
                   {message.role === "assistant" ? (
                     <div className="break-words">
+                      {message.thinking ? (
+                        <details className="mb-2 rounded-lg border px-2.5 py-2" style={{ borderColor: "var(--border)" }}>
+                          <summary className="cursor-pointer text-[10.5px] font-medium" style={{ color: "var(--muted)" }}>
+                            Pensamento completo
+                          </summary>
+                          <pre
+                            className="mono mt-1.5 max-h-[320px] overflow-auto whitespace-pre-wrap text-[10.5px] leading-relaxed"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            {message.thinking}
+                          </pre>
+                        </details>
+                      ) : null}
                       <Markdown text={message.content} />
                     </div>
                   ) : (
@@ -247,6 +283,19 @@ export default function ChatView() {
                 <div className="flex items-center gap-2 text-[11px]" style={{ color: "var(--muted)" }}>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   {status ?? "Respondendo..."}
+                  {queue.length ? <span style={{ color: "var(--muted-2)" }}>· {queue.length} na fila</span> : null}
+                </div>
+              ) : null}
+              {queue.length ? (
+                <div className="rounded-lg border px-3 py-2 text-[10.5px]" style={{ borderColor: "var(--border)" }}>
+                  <p className="font-medium" style={{ color: "var(--muted)" }}>
+                    Fila ({queue.length}) — envio assim que a missão atual terminar
+                  </p>
+                  {queue.map((item, index) => (
+                    <p key={`${index}-${item.slice(0, 12)}`} className="truncate" style={{ color: "var(--muted-2)" }}>
+                      {index + 1}. {item}
+                    </p>
+                  ))}
                 </div>
               ) : null}
               <div ref={endRef} />
@@ -272,7 +321,7 @@ export default function ChatView() {
                 }
               }}
               rows={1}
-              placeholder="Pergunte algo, cole um link ou peça uma pesquisa."
+                                placeholder={busy ? "O agente está trabalhando — o que você escrever entra na fila." : "Pergunte algo, cole um link ou peça uma pesquisa."}
               aria-label="Mensagem"
               className="w-full resize-none bg-transparent text-[16px] leading-relaxed outline-none placeholder:text-[var(--muted-2)]"
             />
@@ -320,8 +369,8 @@ export default function ChatView() {
                 ) : null}
                 <button
                   type="button"
-                  onClick={() => void send()}
-                  disabled={!input.trim() || busy}
+                  onClick={() => send()}
+                  disabled={!input.trim()}
                   className="btn !rounded-full !px-2.5 !py-1.5"
                   aria-label="Enviar"
                 >

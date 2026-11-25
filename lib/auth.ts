@@ -2,7 +2,7 @@ import { createClient, type Session, type SupabaseClient } from "@supabase/supab
 import { App as CapacitorApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 import { Capacitor } from "@capacitor/core";
-import type { AuthSession, AuthUser, SupabaseConfig } from "./types";
+import type { AuthSession, AuthUser, NativeBridge, SupabaseConfig } from "./types";
 
 export const NATIVE_CALLBACK = "omnistudio://auth/callback";
 
@@ -136,6 +136,36 @@ export function redirectUri() {
  * - Web/PWA: redireciona na própria aba, com redirectTo na origem atual.
  * Nunca usa localhost fixo.
  */
+/** Abre um link no navegador do sistema (Electron) ou numa aba nova. */
+export async function openExternalLink(url: string) {
+  if (typeof window === "undefined") return;
+  const bridge = (window as unknown as { omniNative?: NativeBridge }).omniNative;
+  if (bridge?.openExternal) {
+    await bridge.openExternal(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+/**
+ * URL do Google sem abrir nada. No app desktop ela é mostrada dentro da janela
+ * para o usuário copiar mesmo quando a folha externa não abre.
+ */
+export async function googleLoginUrl(config?: SupabaseConfig | null): Promise<string> {
+  const supabase = getSupabase(config);
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: redirectUri(),
+      skipBrowserRedirect: true,
+      queryParams: { prompt: "select_account" },
+    },
+  });
+  if (error) throw new Error(error.message);
+  if (!data?.url) throw new Error("O Supabase não devolveu a URL de login.");
+  return data.url;
+}
+
 export async function signInWithGoogle(config?: SupabaseConfig | null) {
   const supabase = getSupabase(config);
 
@@ -155,17 +185,7 @@ export async function signInWithGoogle(config?: SupabaseConfig | null) {
   }
 
   if (isNativeShell()) {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: redirectUri(),
-        skipBrowserRedirect: true,
-        queryParams: { prompt: "select_account" },
-      },
-    });
-    if (error) throw new Error(error.message);
-    if (!data?.url) throw new Error("O Supabase não devolveu a URL de login.");
-    window.open(data.url, "_blank", "noreferrer");
+    await openExternalLink(await googleLoginUrl(config));
     return;
   }
 

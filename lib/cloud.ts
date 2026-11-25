@@ -146,6 +146,9 @@ export async function pullKeys(
       groq: rows[0].groq ?? "",
       mistral: rows[0].mistral ?? "",
       composio: rows[0].composio ?? "",
+      anthropic: "",
+      openai: "",
+      custom: "",
     };
     if (!keys.openrouter && !keys.groq && !keys.mistral && !keys.composio) {
       return { ok: false, message: "Nenhuma chave salva nesta conta." };

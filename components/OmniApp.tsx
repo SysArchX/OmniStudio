@@ -39,7 +39,7 @@ import StudioView from "./views/StudioView";
 import AgentView from "./views/AgentView";
 import SettingsView from "./views/SettingsView";
 import CreditsView from "./views/CreditsView";
-import { detectPlatform, type PlatformInfo } from "@/lib/platform";
+import { detectPlatform, type PlatformInfo, type PlatformKind } from "@/lib/platform";
 
 const NAV: Array<{ id: ViewId; label: string; short: string; icon: typeof MessagesSquare }> = [
   { id: "chat", label: "Chat", short: "Chat", icon: MessagesSquare },
@@ -56,9 +56,13 @@ const VIEW_TITLE: Record<ViewId, string> = {
   credits: "Créditos",
 };
 
-/** No navegador o app mostra só o chat; a suíte completa vive nos apps instalados. */
-function navFor(native: boolean) {
-  return native ? NAV : NAV.filter((item) => item.id === "chat");
+/**
+ * Só o desktop é agente. Android/iOS são um chat normal, que ainda manda
+ * comandos remotos para o PC — nunca executam nada localmente.
+ */
+function navFor(kind: PlatformKind) {
+  if (kind === "desktop") return NAV;
+  return NAV.filter((item) => item.id === "chat" || item.id === "settings");
 }
 
 function firstName(value: string) {
@@ -259,7 +263,7 @@ function Sidebar({ onNavigate, native }: { onNavigate?: () => void; native: bool
   const { view, setView, conversations, activeId, setActiveId, createConversation, removeConversation, patchConversation } = useWorkspace();
   const [collapsed, setCollapsed] = useState(false);
   const [downloadsOpen, setDownloadsOpen] = useState(false);
-  const items = navFor(native);
+  const items = navFor(native ? "desktop" : "web");
   const groups = useMemo(() => groupConversations(conversations), [conversations]);
 
   const openFolder = async () => {
@@ -459,6 +463,8 @@ function Shell() {
   const [pairCode, setPairCode] = useState<string | null>(null);
 
   const native = platform.native;
+  /** Agente, estúdio e terminal existem somente no app Windows/Linux. */
+  const desktop = platform.kind === "desktop";
 
   useEffect(() => {
     setPlatform(detectPlatform());
@@ -467,10 +473,10 @@ function Shell() {
     if (code) setPairCode(code.toUpperCase());
   }, []);
 
-  // No navegador, nada de Estúdio/Agente: o chat é o foco.
+  // Fora do desktop, nada de Estúdio/Agente: o chat é o foco.
   useEffect(() => {
-    if (!native && (view === "studio" || view === "agent")) setView("chat");
-  }, [native, view, setView]);
+    if (!desktop && (view === "studio" || view === "agent")) setView("chat");
+  }, [desktop, view, setView]);
 
   useEffect(() => {
     if (!session || keysRestored.current === session.user.id) return;
@@ -518,7 +524,7 @@ function Shell() {
         className="hidden w-[260px] shrink-0 flex-col border-r px-2.5 py-3 md:flex"
         style={{ borderColor: "var(--border)", background: "var(--surface)" }}
       >
-        <Sidebar native={native} />
+        <Sidebar native={desktop} />
       </aside>
 
       {mobileSidebarOpen ? (
@@ -537,7 +543,7 @@ function Shell() {
         style={{ borderColor: "var(--border)", background: "var(--surface)" }}
         aria-hidden={!mobileSidebarOpen}
       >
-        <Sidebar onNavigate={() => setMobileSidebarOpen(false)} native={native} />
+        <Sidebar onNavigate={() => setMobileSidebarOpen(false)} native={desktop} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -578,7 +584,7 @@ function Shell() {
         </header>
 
         <main className="relative min-h-0 flex-1 overflow-hidden pb-[calc(56px+env(safe-area-inset-bottom))] md:pb-0">
-          {native && !session ? (
+          {desktop && !session ? (
             <div className="absolute inset-0 z-30 grid place-items-center p-6" style={{ background: "var(--bg)" }}>
               <div
                 className="w-full max-w-[360px] rounded-2xl border p-4"
@@ -593,14 +599,14 @@ function Shell() {
             </div>
           ) : null}
           {view === "chat" ? <ChatView /> : null}
-          {view === "studio" && native ? <StudioView showCanvas={!inspectorOpen} /> : null}
-          {view === "agent" && native ? <AgentView platform={platform} /> : null}
+          {view === "studio" && desktop ? <StudioView showCanvas={!inspectorOpen} /> : null}
+          {view === "agent" && desktop ? <AgentView platform={platform} /> : null}
           {view === "settings" ? <SettingsView /> : null}
           {view === "credits" ? <CreditsView platform={platform} /> : null}
         </main>
       </div>
 
-      {native ? <Inspector /> : null}
+      {desktop ? <Inspector /> : null}
 
       <nav
         className="fixed bottom-0 left-0 right-0 z-30 flex items-stretch gap-1 border-t px-1 pt-1 md:hidden"
@@ -611,7 +617,7 @@ function Shell() {
         }}
         aria-label="Navegação principal"
       >
-        {navFor(native).map((item) => {
+        {navFor(platform.kind).map((item) => {
           const Icon = item.icon;
           const active = view === item.id;
           return (

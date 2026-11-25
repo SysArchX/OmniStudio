@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 import { ACCENTS, useSettings } from "@/lib/settings-store";
 import { useAuth } from "@/lib/auth-store";
-import { getComposioKey, setComposioKey } from "@/lib/composio";
 import { pullKeys, pushKeys } from "@/lib/cloud";
 import {
   providerKeyHelp,
@@ -37,6 +36,7 @@ import {
   loadCatalog,
   type CatalogModel,
 } from "@/lib/model-catalog";
+import RemoteControl from "../RemoteControl";
 
 /** Rótulo da faixa de prioridade mostrado no seletor de modelo. */
 const TIER_LABEL: Record<CatalogModel["tier"], string> = {
@@ -107,29 +107,18 @@ export default function SettingsView() {
   const { session, signIn, signOut, openAuth } = useAuth();
   const [tab, setTab] = useState<TabId>("keys");
   const [reveal, setReveal] = useState<Record<string, boolean>>({});
-  const [status, setStatus] = useState<Record<ProviderId, ProviderTestResult & { testing?: boolean }>>({
-    groq: { ok: false, status: "idle", message: "Standby" },
-    openrouter: { ok: false, status: "idle", message: "Standby" },
-    mistral: { ok: false, status: "idle", message: "Standby" },
-  });
+  const [status, setStatus] = useState<Record<ProviderId, ProviderTestResult & { testing?: boolean }>>(
+    () =>
+      Object.fromEntries(
+        PROVIDER_ORDER.map((provider) => [provider, { ok: false, status: "idle", message: "Standby" }]),
+      ) as Record<ProviderId, ProviderTestResult & { testing?: boolean }>,
+  );
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [sync, setSync] = useState<string | null>(null);
-  const [composioKey, setComposioKeyState] = useState("");
   const [catalog, setCatalog] = useState<CatalogModel[]>(() => catalogSnapshot());
   const clearLocalKeys = () => {
-    updateKeys({ openrouter: "", groq: "", mistral: "", composio: "" });
-    setComposioKey("");
-    setComposioKeyState("");
+    updateKeys({ openrouter: "", groq: "", mistral: "", composio: "", anthropic: "", openai: "", custom: "" });
   };
-
-  useEffect(() => {
-    const stored = settings.keys.composio || getComposioKey();
-    if (stored) {
-      setComposioKeyState(stored);
-      setComposioKey(stored);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => setVoices(ptBrVoices()), []);
@@ -146,7 +135,7 @@ export default function SettingsView() {
 
   const test = async (provider: ProviderId) => {
     setStatus((prev) => ({ ...prev, [provider]: { ...prev[provider], testing: true } }));
-    const result = await testProvider(provider, settings.keys[provider]);
+    const result = await testProvider(provider, settings.keys[provider], settings.endpoints);
     setStatus((prev) => ({ ...prev, [provider]: { ...result, testing: false } }));
   };
 
@@ -244,21 +233,28 @@ export default function SettingsView() {
           {tab === "keys" ? (
             <div className="space-y-3">
               <div>
-                <h2 className="text-[14px] font-semibold">Provedores gratuitos</h2>
+                <h2 className="text-[14px] font-semibold">Provedores e modelos</h2>
                 <p className="mt-1 text-[11.5px] leading-relaxed" style={{ color: "var(--muted)" }}>
-                  OpenRouter responde primeiro; Groq e Mistral entram quando ele falha. As chaves ficam neste dispositivo e vão para a sua conta quando você clica em salvar.
+                  OpenRouter responde primeiro; Groq e Mistral entram quando ele falha. Os slots abaixo ligam o app às
+                  mesmas IAs que você usa no Claude Code, Codex, Freebuff e OpenCode — inclusive um proxy
+                  compatível com OpenAI, como o free-claude-code. Cada provedor tem URL base e modelo editáveis.
                 </p>
               </div>
 
               {PROVIDER_ORDER.map((provider) => {
-                const current = status[provider];
+                const current = status[provider] ?? { ok: false, status: "idle" as const, message: "Standby" };
+                const endpointKey =
+                  provider === "anthropic" || provider === "openai" || provider === "custom"
+                    ? provider
+                    : null;
+                const endpoint = endpointKey ? settings.endpoints[endpointKey] : null;
                 return (
                   <div key={provider} className="panel p-3.5">
                     <div className="mb-2 flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-[12.5px] font-medium">{PROVIDER_LABEL[provider]}</p>
                         <p className="mono truncate text-[9.5px]" style={{ color: "var(--muted-2)" }}>
-                          {PROVIDER_MODEL[provider]}
+                          {endpoint ? endpoint.model || "modelo não definido" : PROVIDER_MODEL[provider]}
                         </p>
                       </div>
                       <Badge tone={STATUS_TONE[current.status] ?? "neutral"}>
@@ -291,6 +287,40 @@ export default function SettingsView() {
                         Testar
                       </button>
                     </div>
+                    {endpoint ? (
+                      <div className="mb-1.5 grid gap-1.5 sm:grid-cols-2">
+                        <input
+                          value={endpoint.baseUrl}
+                          onChange={(event) =>
+                            update({
+                              endpoints: {
+                                ...settings.endpoints,
+                                [provider]: { ...endpoint!, baseUrl: event.target.value },
+                              },
+                            })
+                          }
+                          placeholder="https://api.openai.com/v1"
+                          aria-label={`URL base de ${PROVIDER_LABEL[provider]}`}
+                          className="input mono !h-8 !text-[10px]"
+                          spellCheck={false}
+                        />
+                        <input
+                          value={endpoint.model}
+                          onChange={(event) =>
+                            update({
+                              endpoints: {
+                                ...settings.endpoints,
+                                [provider]: { ...endpoint!, model: event.target.value },
+                              },
+                            })
+                          }
+                          placeholder="nome do modelo"
+                          aria-label={`Modelo de ${PROVIDER_LABEL[provider]}`}
+                          className="input mono !h-8 !text-[10px]"
+                          spellCheck={false}
+                        />
+                      </div>
+                    ) : null}
                     <div className="mt-1.5 flex items-center justify-between gap-3 text-[10px]" style={{ color: "var(--muted-2)" }}>
                       <span className="truncate">{current.status === "idle" ? "Nenhum teste executado." : current.message}</span>
                       <a href={`https://${providerKeyHelp(provider)}`} target="_blank" rel="noreferrer" className="shrink-0 underline decoration-dotted">
@@ -300,6 +330,8 @@ export default function SettingsView() {
                   </div>
                 );
               })}
+
+              <RemoteControl />
 
               <div className="panel space-y-2 p-3.5">
                 <p className="text-[12px] font-medium">Modelo da OpenRouter</p>
@@ -568,24 +600,27 @@ export default function SettingsView() {
               </div>
 
               <div className="panel space-y-2 p-3.5">
-                <p className="text-[12px] font-medium">Composio</p>
+                <p className="text-[12px] font-medium">Apps conectados</p>
                 <p className="text-[10.5px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
-                  Chave do projeto para o Modo Agente usar GitHub, Gmail, Google Calendar e Tavily. Fica só neste dispositivo.
+                  Nada de chave de integrador e nada de sair para uma página de conexão: o agente usa o que já está
+                  ligado nesta conta.
                 </p>
-                <input
-                  type="password"
-                  value={composioKey}
-                  onChange={(event) => {
-                    setComposioKeyState(event.target.value);
-                    setComposioKey(event.target.value);
-                    updateKeys({ composio: event.target.value });
-                  }}
-                  placeholder="ck_..."
-                  className="input mono !text-[11px]"
-                  spellCheck={false}
-                  autoComplete="off"
-                  aria-label="Chave Composio"
-                />
+                {[
+                  { name: "GitHub", detail: settings.github.token ? `token ativo · ${settings.github.repo}` : "informe um token pessoal na aba Conta" },
+                  { name: "Controle remoto", detail: session ? `conta ${session.user.email}` : "entre na conta para liberar" },
+                  { name: "Pesquisa web", detail: "Wikipédia, DuckDuckGo e leitura de páginas, sem chave" },
+                  { name: "Arquivos e terminal", detail: "pasta de trabalho escolhida no app Windows/Linux" },
+                ].map((app) => (
+                  <div key={app.name} className="flex items-center gap-2 rounded-lg border px-2 py-1.5" style={{ borderColor: "var(--border)" }}>
+                    <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "#4ade80" }} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[11.5px] font-medium">{app.name}</span>
+                      <span className="block truncate text-[10px]" style={{ color: "var(--muted-2)" }}>
+                        {app.detail}
+                      </span>
+                    </span>
+                  </div>
+                ))}
               </div>
 
               <div className="panel space-y-2 p-3.5">
